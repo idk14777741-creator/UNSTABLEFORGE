@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Nav from './components/Nav'
 import ScrollProgress from './components/ScrollProgress'
 import Hero from './components/Hero'
@@ -12,12 +12,27 @@ import Faq from './components/Faq'
 import FinalCta from './components/FinalCta'
 import Footer from './components/Footer'
 import RegistrationDialog from './components/RegistrationDialog'
+import RouteLoader from './components/RouteLoader'
 import AnnouncementsPage from './pages/AnnouncementsPage'
 import AnnouncementDetail from './pages/AnnouncementDetail'
-import { Link, useRoute } from './lib/router'
+import LoginPage from './pages/LoginPage'
+import SignupPage from './pages/SignupPage'
+import UnauthorizedPage from './pages/UnauthorizedPage'
+import AdminDashboard from './pages/admin/AdminDashboard'
+import AdminAnnouncements from './pages/admin/AdminAnnouncements'
+import AdminEditor from './pages/admin/AdminEditor'
+import { Link, navigate, useRoute } from './lib/router'
+import { roleHome, safeNext, useAuth } from './context/AuthContext'
 import { useReveal } from './hooks/useReveal'
 
 function NotFound() {
+  useEffect(() => {
+    document.title = 'Page not found — Unstable Forge'
+    return () => {
+      document.title = 'Unstable Forge — C³ Crescent Code Clash'
+    }
+  }, [])
+
   return (
     <main id="main" className="ann-main">
       <section className="section ann-missing">
@@ -46,17 +61,78 @@ function NotFound() {
   )
 }
 
+function Redirect({ to }) {
+  useEffect(() => {
+    navigate(to, { replace: true })
+  }, [to])
+
+  return <RouteLoader label="REDIRECTING" />
+}
+
+function GuestOnly({ children }) {
+  const { status, user } = useAuth()
+  const { search } = useRoute()
+
+  if (status === 'checking') return <RouteLoader />
+
+  if (status === 'authenticated') {
+    const next = safeNext(new URLSearchParams(search).get('next'))
+    return <Redirect to={next || roleHome(user)} />
+  }
+
+  return children
+}
+
+function RequireOrganizer({ children }) {
+  const { status, isOrganizer, user } = useAuth()
+  const { pathname, search } = useRoute()
+
+  if (status === 'checking') return <RouteLoader />
+
+  if (status !== 'authenticated') {
+    const target = `${pathname}${search}`
+    return <Redirect to={`/login?next=${encodeURIComponent(target)}`} />
+  }
+
+  if (!isOrganizer) {
+    return <Redirect to="/unauthorized" />
+  }
+
+  if (!user) return <RouteLoader />
+
+  return children
+}
+
 export default function App() {
   const [registrationOpen, setRegistrationOpen] = useState(false)
-  const { pathname } = useRoute()
+  const { pathname, search } = useRoute()
   useReveal(pathname)
 
   const openRegistration = () => setRegistrationOpen(true)
   const closeRegistration = () => setRegistrationOpen(false)
 
   const detailMatch = pathname.match(/^\/announcements\/([^/]+)$/)
+  const editorMatch = pathname.match(/^\/admin\/announcements\/(\d+)\/edit$/)
   const isHome = pathname === '/'
   const isAnnouncements = pathname === '/announcements'
+  const isLogin = pathname === '/login'
+  const isSignup = pathname === '/signup'
+  const isUnauthorized = pathname === '/unauthorized'
+  const isAdminHome = pathname === '/admin'
+  const isAdminList = pathname === '/admin/announcements'
+  const isAdminNew = pathname === '/admin/announcements/new'
+  const isAuthPage = isLogin || isSignup
+  const isKnownRoute =
+    isHome ||
+    isAnnouncements ||
+    Boolean(detailMatch) ||
+    isLogin ||
+    isSignup ||
+    isUnauthorized ||
+    isAdminHome ||
+    isAdminList ||
+    isAdminNew ||
+    Boolean(editorMatch)
 
   return (
     <div className="page">
@@ -64,8 +140,8 @@ export default function App() {
         SKIP TO CONTENT
       </a>
 
-      <ScrollProgress />
-      <Nav onOpenRegistration={openRegistration} />
+      {!isAuthPage && <ScrollProgress />}
+      {!isAuthPage && <Nav onOpenRegistration={openRegistration} />}
 
       {isHome && (
         <main id="main">
@@ -85,10 +161,50 @@ export default function App() {
 
       {detailMatch && <AnnouncementDetail slug={decodeURIComponent(detailMatch[1])} />}
 
-      {!isHome && !isAnnouncements && !detailMatch && <NotFound />}
+      {isLogin && (
+        <GuestOnly>
+          <LoginPage />
+        </GuestOnly>
+      )}
 
-      <Footer />
-      <RegistrationDialog open={registrationOpen} onClose={closeRegistration} />
+      {isSignup && (
+        <GuestOnly>
+          <SignupPage />
+        </GuestOnly>
+      )}
+
+      {isUnauthorized && <UnauthorizedPage />}
+
+      {isAdminHome && (
+        <RequireOrganizer>
+          <AdminDashboard />
+        </RequireOrganizer>
+      )}
+
+      {isAdminList && (
+        <RequireOrganizer>
+          <AdminAnnouncements />
+        </RequireOrganizer>
+      )}
+
+      {isAdminNew && (
+        <RequireOrganizer>
+          <AdminEditor />
+        </RequireOrganizer>
+      )}
+
+      {editorMatch && (
+        <RequireOrganizer>
+          <AdminEditor id={editorMatch[1]} />
+        </RequireOrganizer>
+      )}
+
+      {!isKnownRoute && <NotFound />}
+
+      {!isAuthPage && <Footer />}
+      {!isAuthPage && (
+        <RegistrationDialog open={registrationOpen} onClose={closeRegistration} />
+      )}
       <div className="grain" aria-hidden="true" />
     </div>
   )

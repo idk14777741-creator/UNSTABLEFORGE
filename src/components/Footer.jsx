@@ -12,21 +12,24 @@ const footerLinks = [
 export default function Footer() {
   const { pathname } = useRoute()
   const isHome = pathname === '/'
-  const resolveHref = (href) => (href.startsWith('/') ? href : isHome ? href : `/${href}`)
+  const SectionTag = isHome ? 'a' : Link
+  const BrandTag = isHome ? 'a' : Link
+  const brandProps = isHome ? { href: '#top' } : { to: '/' }
+  const sectionProps = (href) => (isHome ? { href } : { to: `/${href}` })
 
   return (
     <footer className="footer">
       <div className="container footer__inner">
         <div className="footer__top">
           <div className="footer__brand">
-            <a
+            <BrandTag
               className="footer__brand-link"
-              href={isHome ? '#top' : '/'}
+              {...brandProps}
               aria-label="Unstable Forge, back to top"
             >
               <Mark className="footer__mark" />
               <span>{brand.name}</span>
-            </a>
+            </BrandTag>
             <p className="footer__tagline">
               WHERE IDEAS{' '}
               <br />
@@ -44,7 +47,7 @@ export default function Footer() {
                     {link.href.startsWith('/') ? (
                       <Link to={link.href}>{link.label}</Link>
                     ) : (
-                      <a href={resolveHref(link.href)}>{link.label}</a>
+                      <SectionTag {...sectionProps(link.href)}>{link.label}</SectionTag>
                     )}
                   </li>
                 ))}
@@ -101,9 +104,9 @@ export default function Footer() {
         <div className="footer__bottom">
           <span>© UNSTABLE FORGE — CONCEPT EVENT EXPERIENCE</span>
           <span>{brand.initiative}</span>
-          <a href={isHome ? '#top' : '/'} className="footer__back">
+          <BrandTag {...brandProps} className="footer__back">
             BACK TO TOP <span aria-hidden="true">↑</span>
-          </a>
+          </BrandTag>
         </div>
       </div>
 

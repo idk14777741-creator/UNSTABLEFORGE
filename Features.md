@@ -33,6 +33,8 @@ An authorized user who creates hackathons, manages registrations, publishes anno
 ### Platform Administrator
 A user responsible for platform-level administration, organizer permissions and event oversight.
 
+> **Implemented today:** the backend has `participant`, `organizer` and `admin` roles. Public signup creates participants only. The seeded organizer account can access the control room; `admin` is also accepted by the authorization middleware. Team Leader remains a planned product role and is not yet a stored role.
+
 ## 3. Hackathon Discovery
 
 - Browse upcoming, ongoing and completed hackathons.
@@ -301,7 +303,41 @@ The implementation should demonstrate an understanding of:
 - Project submission and moderation workflows.
 - Testing, deployment and application security.
 
-This section will be updated as features are actually implemented and concepts are understood.
+### Day 8 — Frontend Routing and Authentication
+
+Day 8 turned the event site into a routed application without replacing its visual identity or its existing authentication system.
+
+#### Routing
+
+- Client-side history routing via `src/lib/router.jsx`, with `Link` navigation and browser back/forward support.
+- Public: `/`, `/login`, `/signup`, `/announcements`, `/announcements/:slug`.
+- Protected: `/admin`, `/admin/announcements`, `/admin/announcements/new`, `/admin/announcements/:id/edit`.
+- `/unauthorized` provides a designed 403 state for signed-in participants; unknown paths render a branded 404.
+- Direct refresh of nested routes is supported by Vite and by the Express SPA fallback.
+- Loading states cover session resolution, redirects, announcement fetches and editor loads.
+
+#### Authentication
+
+- Login and signup use the real Express endpoints; no simulated client-side authentication.
+- Signup accepts email and password only, validates them on both client and server, handles duplicate emails, and creates a participant account without issuing a token.
+- Login supports show/hide password, client validation, server error mapping, disabled/loading submission, success feedback and redirect to the requested destination.
+- `AuthProvider` centralizes `checking`, `anonymous` and `authenticated` state. It restores the stored bearer session, checks expiry and validates it with `/api/auth/me` before protected content renders.
+- Sessions survive refresh; signed-in users skip login/signup; logout clears the session; a `401` clears it and shows an expired-session notice.
+- Client role checks control navigation and UX only. `requireOrganizer` remains authoritative on the API and returns `403` for participants.
+
+#### Organizer Control Room
+
+The control room reuses the Day 7 announcement API. It provides counts for total, published and draft dispatches; recent activity; search, status filters and pagination; publish/unpublish; edit; and two-step delete. The editor creates or updates dispatches and keeps publication state explicit.
+
+#### Verification
+
+`npm run test:api` passes 58/58 checks, covering signup validation, duplicate accounts, participant login, participant `403`s, organizer-only draft access, invalid admin filters and invalid sessions. Browser checks covered login success/failure, signup and duplicate handling, refresh persistence, protected redirects and return paths, admin vs participant access, logout, expiry recovery, nested-route refresh, mobile layouts and existing landing functionality.
+
+#### Known Limitation
+
+Because the existing API issues bearer tokens, the frontend stores the session in `localStorage`. The backend remains authoritative, but an XSS vulnerability could expose a token. Moving the session to HttpOnly, SameSite cookies with CSRF protection is a future security improvement.
+
+This section is updated as features are actually implemented and concepts are understood.
 
 ---
 

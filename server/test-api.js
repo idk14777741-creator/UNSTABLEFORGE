@@ -221,6 +221,127 @@ async function main() {
   })
   check('malformed JSON returns a clear 400', malformed.status === 400)
 
+  // ---------------------------------------------------------------- Day 8 auth
+
+  const signupValidation = await request('/api/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'not-an-email', password: 'short' }),
+  })
+  check(
+    'signup validation reports email and password fields',
+    signupValidation.status === 400 &&
+      Boolean(signupValidation.body.error?.fields?.email) &&
+      Boolean(signupValidation.body.error?.fields?.password),
+  )
+
+  const participantEmail = `day8.participant.${Date.now()}@example.test`
+  const participantPassword = 'forgeDay8test1'
+  const signup = await request('/api/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ email: participantEmail, password: participantPassword }),
+  })
+  check(
+    'public signup creates a participant without a token',
+    signup.status === 201 &&
+      signup.body.user?.role === 'participant' &&
+      signup.body.token === undefined,
+  )
+
+  const duplicateSignup = await request('/api/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ email: participantEmail, password: participantPassword }),
+  })
+  check(
+    'duplicate signup returns 409 with an email field error',
+    duplicateSignup.status === 409 && Boolean(duplicateSignup.body.error?.fields?.email),
+  )
+
+  const participantLogin = await request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: participantEmail, password: participantPassword }),
+  })
+  check(
+    'new participant can log in with the created password',
+    participantLogin.status === 200 && participantLogin.body.user?.role === 'participant',
+  )
+  const participantAuth = { Authorization: `Bearer ${participantLogin.body.token}` }
+
+  const participantMe = await request('/api/auth/me', { headers: participantAuth })
+  check(
+    'session endpoint resolves the signed-in participant',
+    participantMe.status === 200 && participantMe.body.user?.email === participantEmail,
+  )
+
+  const participantAdmin = await request('/api/admin/announcements', {
+    headers: participantAuth,
+  })
+  check('participant cannot read the admin announcement list', participantAdmin.status === 403)
+
+  const participantWrite = await request('/api/announcements', {
+    method: 'POST',
+    headers: participantAuth,
+    body: JSON.stringify({
+      title: 'Participant attempt',
+      content: 'A participant must not be allowed to publish this announcement.',
+    }),
+  })
+  check('participant cannot create announcements', participantWrite.status === 403)
+
+  const adminWithoutToken = await request('/api/admin/announcements')
+  check('admin list requires a token', adminWithoutToken.status === 401)
+
+  const adminList = await request('/api/admin/announcements?limit=50', { headers: auth })
+  check('organizer can read all announcements', adminList.status === 200)
+  check(
+    'admin summary counts published and draft records',
+    adminList.body.meta?.summary?.total === adminList.body.meta?.total &&
+      adminList.body.meta.summary.published + adminList.body.meta.summary.drafts ===
+        adminList.body.meta.summary.total &&
+      adminList.body.meta.summary.drafts >= 2,
+  )
+
+  const draftList = await request('/api/admin/announcements?status=draft&limit=50', {
+    headers: auth,
+  })
+  check(
+    'draft filter exposes unpublished announcements only to organizers',
+    draftList.status === 200 &&
+      draftList.body.data.length > 0 &&
+      draftList.body.data.every((item) => item.isPublished === false),
+  )
+
+  const seededDraft = draftList.body.data.find(
+    (item) => item.slug === 'draft-registration-launch-checklist',
+  )
+  check('seeded draft is visible in the organizer record', Boolean(seededDraft))
+
+  if (seededDraft) {
+    const adminDetail = await request(`/api/admin/announcements/${seededDraft.id}`, {
+      headers: auth,
+    })
+    check(
+      'organizer can read a draft with its content',
+      adminDetail.status === 200 &&
+        adminDetail.body.data.isPublished === false &&
+        adminDetail.body.data.content.length > 20,
+    )
+  }
+
+  const invalidStatus = await request('/api/admin/announcements?status=deleted', {
+    headers: auth,
+  })
+  check('invalid admin status filter is rejected', invalidStatus.status === 400)
+
+  const missingAdminDetail = await request('/api/admin/announcements/999999', {
+    headers: auth,
+  })
+  check('missing admin announcement returns 404', missingAdminDetail.status === 404)
+
+  const invalidSession = await request('/api/auth/me', {
+    headers: { Authorization: 'Bearer expired.or.invalid' },
+  })
+  check('invalid or expired session returns 401', invalidSession.status === 401)
+
   console.log(`\n${passed} passed, ${failed} failed\n`)
   if (failed > 0) process.exitCode = 1
 }

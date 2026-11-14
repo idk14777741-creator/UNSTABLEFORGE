@@ -4,16 +4,21 @@ import { navLinks, brand, updatesLink } from '../data/site'
 import Mark from './Mark'
 import Cta from './Cta'
 import { Link, useRoute } from '../lib/router'
+import { useAuth } from '../context/AuthContext'
 import { lockScroll, releaseScroll } from '../lib/scrollLock'
 
 export default function Nav({ onOpenRegistration }) {
   const { pathname } = useRoute()
+  const { status, user, isOrganizer, logout } = useAuth()
   const isHome = pathname === '/'
   const isUpdates = pathname.startsWith('/announcements')
-  const sectionHref = (link) => (isHome ? link.href : `/${link.href}`)
-  const homeHref = isHome ? '#top' : '/'
+  const isAdmin = pathname.startsWith('/admin')
+  const SectionTag = isHome ? 'a' : Link
+  const BrandTag = isHome ? 'a' : Link
+  const sectionProps = (link) => (isHome ? { href: link.href } : { to: `/${link.href}` })
+  const brandProps = isHome ? { href: '#top' } : { to: '/' }
   const [scrolled, setScrolled] = useState(false)
-  const overDark = isUpdates && !scrolled
+  const overDark = (isUpdates || isAdmin) && !scrolled
   const [active, setActive] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const menuButtonRef = useRef(null)
@@ -117,7 +122,14 @@ export default function Nav({ onOpenRegistration }) {
     onOpenRegistration()
   }
 
-  const handleMenuNavigate = () => setMenuOpen(false)
+  const handleMenuNavigate = () => {
+    skipFocusRestoreRef.current = true
+    setMenuOpen(false)
+  }
+  const handleLogout = () => {
+    setMenuOpen(false)
+    logout({ redirect: '/' })
+  }
 
   const menu = menuOpen
     ? createPortal(
@@ -130,10 +142,10 @@ export default function Nav({ onOpenRegistration }) {
           ref={overlayRef}
         >
           <div className="menu__top">
-            <a className="menu__brand" href={homeHref} onClick={handleMenuNavigate}>
+            <BrandTag className="menu__brand" {...brandProps} onClick={handleMenuNavigate}>
               <Mark className="menu__mark" />
               <span>{brand.name}</span>
-            </a>
+            </BrandTag>
             <button
               className="menu__close"
               type="button"
@@ -150,10 +162,10 @@ export default function Nav({ onOpenRegistration }) {
 
           <nav className="menu__nav" aria-label="Mobile navigation">
             {navLinks.map((link, index) => (
-              <a
+              <SectionTag
                 key={link.id}
                 className="menu__link"
-                href={sectionHref(link)}
+                {...sectionProps(link)}
                 onClick={handleMenuNavigate}
                 style={{ '--menu-index': index }}
               >
@@ -162,8 +174,8 @@ export default function Nav({ onOpenRegistration }) {
                 <span className="menu__arrow" aria-hidden="true">
                   ↗
                 </span>
-              </a>
-                          ))}
+              </SectionTag>
+            ))}
             <Link
               className="menu__link"
               to={updatesLink.href}
@@ -178,6 +190,33 @@ export default function Nav({ onOpenRegistration }) {
               </span>
             </Link>
           </nav>
+
+          <div className="menu__account">
+            {status === 'authenticated' ? (
+              <>
+                <span className="menu__account-id">{user?.email}</span>
+                <div className="menu__account-links">
+                  {isOrganizer && (
+                    <Link to="/admin" onClick={handleMenuNavigate}>
+                      CONTROL ROOM ↗
+                    </Link>
+                  )}
+                  <button type="button" onClick={handleLogout}>
+                    LOG OUT
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="menu__account-links">
+                <Link to="/login" onClick={handleMenuNavigate}>
+                  LOG IN ↗
+                </Link>
+                <Link to="/signup" onClick={handleMenuNavigate}>
+                  CREATE ACCOUNT ↗
+                </Link>
+              </div>
+            )}
+          </div>
 
           <div className="menu__foot">
             <div>
@@ -198,24 +237,24 @@ export default function Nav({ onOpenRegistration }) {
       <header
         className={`nav ${scrolled ? 'is-scrolled' : ''} ${overDark ? 'nav--over-dark' : ''}`}
       >
-        <a className="nav__brand" href={homeHref} aria-label="Unstable Forge, back to top">
+        <BrandTag className="nav__brand" {...brandProps} aria-label="Unstable Forge, back to top">
           <Mark className="nav__mark" />
           <span className="nav__brand-copy">
             <span className="nav__name">{brand.name}</span>
             <span className="nav__tagline">{brand.tagline}</span>
           </span>
-        </a>
+        </BrandTag>
 
         <nav className="nav__links" aria-label="Primary navigation">
           {navLinks.map((link) => (
-            <a
+            <SectionTag
               key={link.id}
               className={`nav__link ${isHome && active === link.id ? 'is-active' : ''}`}
-              href={sectionHref(link)}
+              {...sectionProps(link)}
               aria-current={isHome && active === link.id ? 'location' : undefined}
             >
               {link.label}
-            </a>
+            </SectionTag>
           ))}
           <Link
             className={`nav__link ${isUpdates ? 'is-active' : ''}`}
@@ -228,6 +267,27 @@ export default function Nav({ onOpenRegistration }) {
 
         <div className="nav__actions">
           <span className="nav__event-status">C³ / TBA</span>
+          {status === 'authenticated' ? (
+            <div className="nav__account">
+              {isOrganizer && (
+                <Link
+                  className={`nav__account-link ${isAdmin ? 'is-active' : ''}`}
+                  to="/admin"
+                >
+                  ADMIN
+                </Link>
+              )}
+              <button className="nav__auth-button" type="button" onClick={handleLogout}>
+                LOG OUT
+              </button>
+            </div>
+          ) : (
+            status === 'anonymous' && (
+              <Link className="nav__account-link" to="/login">
+                LOG IN
+              </Link>
+            )
+          )}
           <Cta
             className="cta--nav"
             variant="outline"

@@ -13,7 +13,7 @@ if (!process.env.AUTH_SECRET || process.env.AUTH_SECRET.length < 16) {
 }
 
 const { db, event } = await import('./db.js')
-const { signToken, verifyToken, verifyPassword, requireOrganizer } = await import('./auth.js')
+const { signToken, verifyToken, verifyPassword, hashPassword, requireOrganizer } = await import('./auth.js')
 
 const CATEGORIES = ['Important', 'Registration', 'Schedule', 'Competition', 'General']
 const CATEGORY_LOOKUP = new Map(CATEGORIES.map((category) => [category.toLowerCase(), category]))
@@ -211,6 +211,32 @@ function findAnnouncementById(id) {
     .get(id)
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function validateSignup(input) {
+  const errors = {}
+  const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : ''
+  const password = typeof input.password === 'string' ? input.password : ''
+
+  if (!email) {
+    errors.email = 'Email is required.'
+  } else if (email.length > 254 || !EMAIL_PATTERN.test(email)) {
+    errors.email = 'Enter a valid email address.'
+  }
+
+  if (!password) {
+    errors.password = 'Password is required.'
+  } else if (password.length < 8) {
+    errors.password = 'Password must be at least 8 characters.'
+  } else if (password.length > 128) {
+    errors.password = 'Password must be 128 characters or fewer.'
+  } else if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+    errors.password = 'Password must include at least one letter and one number.'
+  }
+
+  return { email, password, errors }
+}
+
 // ---------------------------------------------------------------- public API
 
 app.get('/api/health', (req, res) => {
@@ -351,6 +377,141 @@ app.get('/api/auth/me', (req, res) => {
     })
   }
   return res.json({ user: { id: claims.sub, email: claims.email, role: claims.role } })
+})
+
+app.post('/api/auth/signup', (req, res) => {
+  const { email, password, errors } = validateSignup(req.body || {})
+
+  if (Object.keys(errors).length) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: 'Check the highlighted fields.', fields: errors },
+    })
+  }
+
+  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email)
+  if (existing) {
+    return res.status(409).json({
+      error: {
+        code: 'EMAIL_TAKEN',
+        message: 'An account with that email already exists.',
+        fields: { email: 'That email is already registered.' },
+      },
+    })
+  }
+
+  try {
+    const result = db
+      .prepare(
+        'INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
+      )
+      .run(email, hashPassword(password), 'participant', new Date().toISOString())
+
+    return res.status(201).json({
+      user: { id: Number(result.lastInsertRowid), email, role: 'participant' },
+    })
+  } catch (error) {
+    if (String(error?.code).startsWith('SQLITE_CONSTRAINT')) {
+      return res.status(409).json({
+        error: {
+          code: 'EMAIL_TAKEN',
+          message: 'An account with that email already exists.',
+          fields: { email: 'That email is already registered.' },
+        },
+      })
+    }
+    throw error
+  }
+})
+
+app.get('/api/admin/announcements', requireOrganizer, (req, res) => {
+  const { page, limit, errors } = pagination(req.query)
+  const { category, error: categoryError } = categoryParam(req.query.category)
+  if (categoryError) errors.category = categoryError
+
+  const search = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  if (search.length > 100) errors.q = 'q must be 100 characters or fewer.'
+
+  const status = req.query.status === undefined ? 'all' : String(req.query.status)
+  if (!['all', 'published', 'draft'].includes(status)) {
+    errors.status = 'status must be all, published, or draft.'
+  }
+
+  if (Object.keys(errors).length) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters.', fields: errors },
+    })
+  }
+
+  const where = ['a.event_id = ?']
+  const params = [event.id]
+
+  if (status === 'published') where.push('a.is_published = 1')
+  if (status === 'draft') where.push('a.is_published = 0')
+  if (category) {
+    where.push('a.category = ?')
+    params.push(category)
+  }
+  if (search) {
+    const escaped = search.replace(/[\\%_]/g, (character) => `\\${character}`)
+    where.push("(a.title LIKE ? ESCAPE '\\' OR a.content LIKE ? ESCAPE '\\')")
+    params.push(`%${escaped}%`, `%${escaped}%`)
+  }
+
+  const whereSql = where.join(' AND ')
+  const total = db
+    .prepare(`SELECT COUNT(*) AS count FROM announcements a WHERE ${whereSql}`)
+    .get(...params).count
+  const totalPages = Math.max(1, Math.ceil(total / limit))
+  const offset = (page - 1) * limit
+
+  const rows = db
+    .prepare(
+      `SELECT a.*, e.slug AS event_slug, e.name AS event_name
+       FROM announcements a
+       JOIN events e ON e.id = a.event_id
+       WHERE ${whereSql}
+       ORDER BY a.updated_at DESC, a.id DESC
+       LIMIT ? OFFSET ?`,
+    )
+    .all(...params, limit, offset)
+
+  const summary = db
+    .prepare(
+      `SELECT
+         COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN is_published = 1 THEN 1 ELSE 0 END), 0) AS published,
+         COALESCE(SUM(CASE WHEN is_published = 0 THEN 1 ELSE 0 END), 0) AS drafts
+       FROM announcements WHERE event_id = ?`,
+    )
+    .get(event.id)
+
+  return res.json({
+    data: rows.map((row) => serialize(row)),
+    meta: {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasMore: page < totalPages,
+      summary,
+    },
+  })
+})
+
+app.get('/api/admin/announcements/:id', requireOrganizer, (req, res) => {
+  const id = parseId(req.params.id)
+  if (!id) {
+    return res.status(400).json({
+      error: { code: 'INVALID_ID', message: 'Announcement id must be a positive integer.' },
+    })
+  }
+
+  const row = findAnnouncementById(id)
+  if (!row) {
+    return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Announcement not found.' } })
+  }
+
+  return res.json({ data: serialize(row, { includeContent: true }) })
 })
 
 app.post('/api/announcements', requireOrganizer, (req, res) => {

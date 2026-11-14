@@ -9,33 +9,43 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiGet(path, { signal } = {}) {
+export async function apiRequest(path, { method = 'GET', body, token, signal } = {}) {
   let response
 
   try {
     response = await fetch(`${API_BASE}${path}`, {
-      headers: { Accept: 'application/json' },
+      method,
+      headers: {
+        Accept: 'application/json',
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
       signal,
     })
   } catch (error) {
     if (error.name === 'AbortError') throw error
-    throw new ApiError('Could not reach the updates service. Check your connection.', 0, null)
+    throw new ApiError('Could not reach the Forge service. Check your connection.', 0, null)
   }
 
-  let body = null
+  let payload = null
   try {
-    body = await response.json()
+    payload = await response.json()
   } catch {
     // A non-JSON response is still surfaced as an error below.
   }
 
   if (!response.ok) {
     throw new ApiError(
-      body?.error?.message || `The updates service returned an error (${response.status}).`,
+      payload?.error?.message || `The Forge service returned an error (${response.status}).`,
       response.status,
-      body,
+      payload,
     )
   }
 
-  return body
+  return payload
+}
+
+export function apiGet(path, options = {}) {
+  return apiRequest(path, { ...options, method: 'GET' })
 }
