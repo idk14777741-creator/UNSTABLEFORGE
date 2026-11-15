@@ -7,6 +7,7 @@ import Challenge from './components/Challenge'
 import Tracks from './components/Tracks'
 import Journey from './components/Journey'
 import Stakes from './components/Stakes'
+import LatestFromForge from './components/LatestFromForge'
 import Participate from './components/Participate'
 import Faq from './components/Faq'
 import FinalCta from './components/FinalCta'
@@ -151,6 +152,7 @@ export default function App() {
           <Tracks />
           <Journey />
           <Stakes />
+          <LatestFromForge />
           <Participate onOpenRegistration={openRegistration} />
           <Faq />
           <FinalCta onOpenRegistration={openRegistration} />

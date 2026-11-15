@@ -337,6 +337,28 @@ The control room reuses the Day 7 announcement API. It provides counts for total
 
 Because the existing API issues bearer tokens, the frontend stores the session in `localStorage`. The backend remains authoritative, but an XSS vulnerability could expose a token. Moving the session to HttpOnly, SameSite cookies with CSRF protection is a future security improvement.
 
+### Day 9 — Dynamic Event Experience and Live API Integration
+
+Day 9 connected the public event experience to the real announcement record without replacing the existing pages or introducing a parallel data source.
+
+#### Live Announcement Surfaces
+
+- **Homepage — LATEST FROM THE FORGE:** fetches the three newest published announcements from `GET /api/announcements?limit=3`. The lead dispatch links to its detail page; the two supporting dispatches form an editorial side rail. The section links to the full archive and fits between the event stakes and participation sections.
+- **Archive — `/announcements`:** uses the existing `GET /api/announcements` endpoint for search (`q`), category filtering, pagination (`page`, `limit`) and newest-first ordering. On the default first page, the newest dispatch becomes a full-width featured lead; the remaining cards start at index 02. Filters and later pages show the normal grid only.
+- **Detail — `/announcements/:slug`:** fetches `GET /api/announcements/:slug` and renders the complete content, title, category and publication date, with a clear route back to the archive.
+
+#### States and Safety
+
+- Skeleton cards cover archive and detail loading; the homepage has a matching dark feature skeleton and side-rail skeletons.
+- Empty archives and empty homepage feeds have designed messages rather than fabricated dispatches.
+- Network failures show a useful message and an in-place retry action. Detail failures distinguish unavailable from not found.
+- Invalid, deleted and unpublished slugs resolve to the public not-found state. The public API excludes drafts, so unpublished content is never exposed through the frontend.
+- No previous/next links are fabricated: the available API has ordered pagination but no adjacency metadata, so the detail page returns to the archive instead.
+
+#### Verification
+
+`npm run test:api` passes **59/59** checks, including newest-first ordering and the existing publication/authorization coverage. Browser checks confirmed that a newly published dispatch appears first on the homepage and on its detail URL, then disappears from both after deletion. Archive search, category filters, featured lead placement, card indexing, pagination, empty states, retry flows, skeleton loading, direct detail refreshes, unpublished `404`s and mobile layouts were exercised against the running API.
+
 This section is updated as features are actually implemented and concepts are understood.
 
 ---

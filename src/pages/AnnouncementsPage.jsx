@@ -45,6 +45,36 @@ function AnnouncementCard({ item, index }) {
   )
 }
 
+function FeaturedDispatch({ item }) {
+  return (
+    <Link className="ann-feature" to={`/announcements/${item.slug}`}>
+      <span className="ann-feature__watermark" aria-hidden="true">
+        01
+      </span>
+      <span className="ann-feature__top">
+        <span className="ann-feature__flag">
+          <span className="status-dot" aria-hidden="true" />
+          LATEST DISPATCH
+        </span>
+        <span className="ann-feature__category">{item.category}</span>
+      </span>
+      <span className="ann-feature__body">
+        <time className="ann-feature__date" dateTime={item.publishedAt || undefined}>
+          {formatDate(item.publishedAt)}
+        </time>
+        <h3 className="display ann-feature__title">{item.title}</h3>
+        <p className="ann-feature__excerpt">{item.excerpt}</p>
+      </span>
+      <span className="ann-feature__foot">
+        <span>READ THE FULL DISPATCH</span>
+        <span className="ann-feature__arrow" aria-hidden="true">
+          ↗
+        </span>
+      </span>
+    </Link>
+  )
+}
+
 function SkeletonCard() {
   return (
     <div className="ann-card ann-card--skeleton" aria-hidden="true">
@@ -134,6 +164,14 @@ export default function AnnouncementsPage() {
   const hasMore = meta?.hasMore ?? false
   const offset = meta ? (meta.page - 1) * meta.limit : 0
   const isFiltered = Boolean(query) || category !== 'All'
+  const showFeatured =
+    result.status === 'success' &&
+    result.items.length > 0 &&
+    !query &&
+    category === 'All' &&
+    page === 1
+  const featured = showFeatured ? result.items[0] : null
+  const listItems = showFeatured ? result.items.slice(1) : result.items
 
   const clearFilters = () => {
     setSearch('')
@@ -250,6 +288,8 @@ export default function AnnouncementsPage() {
               </span>
             </div>
 
+            {featured && <FeaturedDispatch item={featured} />}
+
             {result.status === 'loading' && (
               <div className="ann-grid" aria-label="Loading announcements">
                 {Array.from({ length: 3 }, (_, index) => (
@@ -289,10 +329,14 @@ export default function AnnouncementsPage() {
               </div>
             )}
 
-            {result.status === 'success' && result.items.length > 0 && (
+            {result.status === 'success' && listItems.length > 0 && (
               <div className="ann-grid">
-                {result.items.map((item, index) => (
-                  <AnnouncementCard key={item.id} item={item} index={offset + index + 1} />
+                {listItems.map((item, index) => (
+                  <AnnouncementCard
+                    key={item.id}
+                    item={item}
+                    index={offset + index + (showFeatured ? 2 : 1)}
+                  />
                 ))}
               </div>
             )}

@@ -53,7 +53,7 @@ Unstable Forge aims to bring these processes together in one platform.
 - **Organizer Dashboard:** Centralized management of hackathons, registrations and attendees.
 - **Role-Based Access:** Separate permissions for participants, organizers and administrators.
 
-## Routes and Authentication (Day 8)
+## Routes, Authentication and Live Updates
 
 The current build is the Unstable Forge event site for C³, with a client-side history router and a bearer-token API.
 
@@ -85,6 +85,20 @@ Navigation uses `history.pushState`, so page changes do not trigger a full reloa
 - Signed-in users are redirected away from `/login` and `/signup`.
 - A `401` from any authenticated request clears the session and returns the user to login with an expired-session message. Logout clears the stored session immediately.
 - Role checks on the client are only a navigation convenience. `requireOrganizer` on the Express API authorizes every privileged request, so a participant receives `403` even if they call an admin endpoint directly.
+
+### Live Announcement Experience (Day 9)
+
+The public event experience reads announcements directly from the existing Express/SQLite API. No hardcoded announcement arrays or fabricated event details are used.
+
+- The homepage **LATEST FROM THE FORGE** section calls `GET /api/announcements?limit=3` and renders the newest published dispatches, with direct links to each detail page and to the full archive.
+- `/announcements` calls `GET /api/announcements` with `q`, `category`, `page` and `limit` parameters. It opens with a featured latest dispatch on the default first page, then shows the remaining cards, result counts, category filters, search and pagination.
+- `/announcements/:slug` calls `GET /api/announcements/:slug` and renders the complete title, category, publication date and content.
+- Only published records are returned by the public API. Drafts return `404`, including when a draft slug is requested directly.
+- The listing and detail routes include skeleton loading states, designed empty states, network-error messages and retry actions. Invalid, deleted or unpublished slugs resolve to a clear not-found state.
+- The homepage live section has its own loading, empty and unreachable states. Its retry action re-requests the latest dispatches without reloading the page.
+- The latest-dispatch feature and homepage cards use the same live data as the archive. When the API changes, a reload of the homepage reflects the new order immediately.
+
+Previous/next links on the detail page are intentionally not fabricated. The existing API exposes ordered pagination and filtering but not adjacency metadata, so the detail page links back to the archive instead of guessing neighbours.
 
 ### Current Technology Stack
 
@@ -146,7 +160,7 @@ With the API running:
 npm run test:api
 ```
 
-The suite covers public announcements, organizer CRUD, signup validation, duplicate accounts, participant login, role-based `403`s, draft visibility, admin filtering and invalid sessions. Day 8 finished with **58 passing checks**.
+The suite covers public announcements, newest-first ordering, organizer CRUD, signup validation, duplicate accounts, participant login, role-based `403`s, draft visibility, admin filtering and invalid sessions. Day 9 finished with **59 passing checks**.
 
 ## What I Built and What I Understood
 
@@ -164,9 +178,11 @@ Through building Unstable Forge, I aim to understand:
 
 Day 8 made the authentication architecture concrete: a centralized React auth context restores and validates a bearer session, route guards distinguish *checking*, *signed in* and *signed out*, and the backend remains the authority for organizer-only operations. Signup deliberately creates participants only; organizer access is seeded/assigned, not chosen in a form.
 
-Manual browser checks covered valid and invalid login, signup and duplicate handling, refresh persistence, protected redirects and return paths, participant vs organizer access, logout, expired sessions, direct nested-route loads, mobile layouts and the existing landing page. The full API suite passes 58/58.
+Day 9 connected the public experience to the live event record: the homepage now carries a real **LATEST FROM THE FORGE** section, the archive opens with a featured dispatch, and the detail route handles real loading, missing and network states. I verified that a newly published dispatch appeared on both the homepage and its detail URL, and disappeared from both after deletion.
 
-Known limitation: the existing API is bearer-token based, so the session is kept in `localStorage`. That follows the established architecture, but it means an XSS vulnerability could expose a token. A future iteration should move to HttpOnly, SameSite cookies with CSRF protection.
+Manual browser checks covered valid and invalid login, signup and duplicate handling, refresh persistence, protected redirects and return paths, participant vs organizer access, logout, expired sessions, direct nested-route loads, mobile layouts and the existing landing page. Day 9 browser checks additionally covered live homepage data, featured archive cards, search, category filters, pagination, empty states, skeleton loading, network errors and retries, direct detail refresh, unpublished `404`s and mobile layouts. The full API suite passes 59/59.
+
+Known limitations: the existing API is bearer-token based, so the session is kept in `localStorage`; an XSS vulnerability could expose a token, and a future iteration should move to HttpOnly, SameSite cookies with CSRF protection. Detail-page previous/next navigation is not implemented because the announcement API does not expose adjacency metadata.
 
 ## Project Identity
 

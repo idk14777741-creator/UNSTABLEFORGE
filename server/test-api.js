@@ -51,6 +51,15 @@ async function main() {
   check('draft announcements are excluded from the total', meta.total >= 12)
   check('page size is respected', firstPage.body.data.length === 5 && meta.limit === 5)
   check('page 1 reports more results', meta.hasMore === true && meta.page === 1)
+  check(
+    'public list is ordered newest first',
+    firstPage.body.data.every(
+      (item, index, items) =>
+        index === 0 ||
+        new Date(items[index - 1].publishedAt).getTime() >=
+          new Date(item.publishedAt).getTime(),
+    ),
+  )
 
   const secondPage = await request('/api/announcements?page=2&limit=5')
   check('page 2 returns a different window', secondPage.body.data[0]?.id !== firstPage.body.data[0]?.id)

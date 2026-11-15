@@ -14,6 +14,7 @@ export default function AnnouncementDetail({ slug }) {
     const controller = new AbortController()
     setStatus('loading')
     setError(null)
+    window.document.title = 'Loading update — Unstable Forge'
 
     apiGet(`/api/announcements/${encodeURIComponent(slug)}`, { signal: controller.signal })
       .then((body) => {
@@ -24,7 +25,11 @@ export default function AnnouncementDetail({ slug }) {
       .catch((requestError) => {
         if (requestError.name === 'AbortError') return
         setError(requestError)
-        setStatus(requestError instanceof ApiError && requestError.status === 404 ? 'missing' : 'error')
+        const notFound = requestError instanceof ApiError && requestError.status === 404
+        setStatus(notFound ? 'missing' : 'error')
+        window.document.title = notFound
+          ? 'Update not found — Unstable Forge'
+          : 'Updates unavailable — Unstable Forge'
       })
 
     return () => controller.abort()
