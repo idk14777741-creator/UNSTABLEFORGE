@@ -13,7 +13,7 @@ export default function Faq() {
     <section id="faq" className="section section--paper faq" aria-labelledby="faq-title">
       <div className="container faq__grid">
         <div className="faq__side">
-          <SectionLabel number="07">FAQ</SectionLabel>
+          <SectionLabel number="08">FAQ</SectionLabel>
           <h2 id="faq-title" className="display faq__title" data-reveal>
             QUESTIONS{' '}
             <br />

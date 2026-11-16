@@ -20,7 +20,7 @@ export default function FinalCta({ onOpenRegistration }) {
 
       <div className="container final__inner">
         <div className="final__head" data-reveal>
-          <SectionLabel number="08" tone="light">
+          <SectionLabel number="09" tone="light">
             REGISTER
           </SectionLabel>
         </div>

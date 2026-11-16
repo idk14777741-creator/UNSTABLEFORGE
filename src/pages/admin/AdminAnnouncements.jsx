@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, navigate, useRoute } from '../../lib/router'
+import { Link, useRoute } from '../../lib/router'
 import { useAuth } from '../../context/AuthContext'
 import SectionLabel from '../../components/SectionLabel'
+import ConfirmDialog from '../../components/ConfirmDialog'
 import { CATEGORIES, formatDate } from '../../data/announcements'
 
 const STATUS_FILTERS = [
@@ -10,24 +11,56 @@ const STATUS_FILTERS = [
   { id: 'draft', label: 'DRAFTS' },
 ]
 
+function savedMessage(value) {
+  if (value === 'created') {
+    return { type: 'success', text: 'DISPATCH CREATED. IT IS NOW IN THE EVENT RECORD.' }
+  }
+  if (value === 'updated') {
+    return { type: 'success', text: 'DISPATCH UPDATED. THE PUBLIC RECORD REFLECTS THE CHANGE.' }
+  }
+  if (value === '1') {
+    return { type: 'success', text: 'DISPATCH SAVED TO THE FORGE.' }
+  }
+  return null
+}
+
+function AdminRowsSkeleton() {
+  return Array.from({ length: 4 }, (_, index) => (
+    <div className="admin-row admin-row--skeleton" key={index} aria-hidden="true">
+      <span className="ann-skeleton admin-skeleton--badge" />
+      <span className="admin-row__title">
+        <span className="ann-skeleton admin-skeleton--title" />
+        <span className="ann-skeleton admin-skeleton--slug" />
+      </span>
+      <span className="ann-skeleton admin-skeleton--short" />
+      <span className="admin-row__dates">
+        <span className="ann-skeleton admin-skeleton--short" />
+        <span className="ann-skeleton admin-skeleton--tiny" />
+      </span>
+      <span className="ann-skeleton admin-skeleton--actions" />
+    </div>
+  ))
+}
+
 export default function AdminAnnouncements() {
   const { request } = useAuth()
   const { search } = useRoute()
-  const saved = new URLSearchParams(search).get('saved') === '1'
   const initial = useRef({
     search: new URLSearchParams(search).get('q') || '',
-    status: 'all',
-    page: 1,
   })
 
   const [searchInput, setSearchInput] = useState(initial.current.search)
   const [query, setQuery] = useState(initial.current.search)
-  const [status, setStatus] = useState(initial.current.status)
+  const [status, setStatus] = useState('all')
   const [page, setPage] = useState(1)
   const [state, setState] = useState({ status: 'loading', items: [], meta: null, error: null })
   const [busyId, setBusyId] = useState(null)
-  const [confirmId, setConfirmId] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
   const [actionError, setActionError] = useState(null)
+  const [notice, setNotice] = useState(() =>
+    savedMessage(new URLSearchParams(search).get('saved')),
+  )
   const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
@@ -72,10 +105,17 @@ export default function AdminAnnouncements() {
   const togglePublished = async (item) => {
     setBusyId(item.id)
     setActionError(null)
+    setNotice(null)
     try {
       await request(`/api/announcements/${item.id}`, {
         method: 'PATCH',
         body: { isPublished: !item.isPublished },
+      })
+      setNotice({
+        type: 'success',
+        text: item.isPublished
+          ? `“${item.title}” IS NOW A PRIVATE DRAFT.`
+          : `“${item.title}” IS NOW PUBLIC ON THE EVENT SITE.`,
       })
       setReloadKey((key) => key + 1)
     } catch (error) {
@@ -85,63 +125,98 @@ export default function AdminAnnouncements() {
     }
   }
 
-  const remove = async (item) => {
-    if (confirmId !== item.id) {
-      setConfirmId(item.id)
-      return
-    }
-
-    setBusyId(item.id)
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleteBusy(true)
     setActionError(null)
     try {
-      await request(`/api/announcements/${item.id}`, { method: 'DELETE' })
-      setConfirmId(null)
-      setReloadKey((key) => key + 1)
+      await request(`/api/announcements/${deleteTarget.id}`, { method: 'DELETE' })
+      setDeleteTarget(null)
+      setNotice({ type: 'success', text: 'DISPATCH DELETED FROM THE RECORD.' })
+      if (state.items.length === 1 && page > 1) setPage((current) => current - 1)
+      else setReloadKey((key) => key + 1)
     } catch (error) {
+      setDeleteTarget(null)
       setActionError(error.message)
     } finally {
-      setBusyId(null)
+      setDeleteBusy(false)
     }
   }
 
   const meta = state.meta
-  const totalPages = meta?.totalPages ?? 1
+  const summary = meta?.summary || null
 
   return (
     <main id="main" className="admin-main">
-      <section className="admin-hero admin-hero--compact" aria-labelledby="manage-title">
+      <section
+        className="admin-hero admin-hero--compact admin-hero--desk"
+        aria-labelledby="manage-title"
+      >
         <div className="container">
           <div className="admin-hero__top">
             <SectionLabel number="ORG" tone="light">
               DISPATCH MANAGEMENT
             </SectionLabel>
-            <Link className="admin-hero__public" to="/admin">
-              ← CONTROL ROOM
-            </Link>
+            <div className="admin-hero__links">
+              <Link className="admin-hero__public" to="/announcements">
+                PUBLIC ARCHIVE <span aria-hidden="true">↗</span>
+              </Link>
+              <Link className="admin-hero__public" to="/admin">
+                ← CONTROL ROOM
+              </Link>
+            </div>
           </div>
           <h1 id="manage-title" className="display admin-hero__title">
             MANAGE THE <em className="serif">RECORD.</em>
           </h1>
           <p className="admin-hero__lede">
             Publish, draft, edit and retire the announcements that appear on the public event
-            site.
+            site. Every action writes to the live event record.
           </p>
         </div>
       </section>
 
-      <section className="section admin-overview">
+      <section className="section admin-overview admin-overview--manage">
         <div className="container">
-          {saved && (
-            <p className="admin-flash" role="status">
-              UPDATE SAVED TO THE FORGE.
-            </p>
+          {notice && (
+            <div className={`admin-flash admin-flash--${notice.type}`} role="status">
+              <span>{notice.text}</span>
+              <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss message">
+                DISMISS ×
+              </button>
+            </div>
           )}
 
           {actionError && (
-            <p className="admin-flash admin-flash--error" role="alert">
-              {actionError}
-            </p>
+            <div className="admin-flash admin-flash--error" role="alert">
+              <span>{actionError}</span>
+              <button
+                type="button"
+                onClick={() => setActionError(null)}
+                aria-label="Dismiss error"
+              >
+                DISMISS ×
+              </button>
+            </div>
           )}
+
+          <div className="admin-summary" aria-label="Announcement totals">
+            <div className="admin-summary__stat">
+              <span>ALL DISPATCHES</span>
+              <strong>{summary ? String(summary.total).padStart(2, '0') : '—'}</strong>
+            </div>
+            <div className="admin-summary__stat">
+              <span>PUBLIC</span>
+              <strong>{summary ? String(summary.published).padStart(2, '0') : '—'}</strong>
+            </div>
+            <div className="admin-summary__stat">
+              <span>DRAFTS</span>
+              <strong>{summary ? String(summary.drafts).padStart(2, '0') : '—'}</strong>
+            </div>
+            <p className="admin-summary__note">
+              PUBLICATION IS THE SWITCH BETWEEN THE PRIVATE DESK AND THE PUBLIC FORGE.
+            </p>
+          </div>
 
           <div className="admin-toolbar">
             <label className="ann-search">
@@ -190,13 +265,11 @@ export default function AdminAnnouncements() {
               <span>STATUS</span>
               <span>UPDATE</span>
               <span>CATEGORY</span>
-              <span>UPDATED</span>
+              <span>PUBLICATION</span>
               <span>ACTIONS</span>
             </div>
 
-            {state.status === 'loading' && state.items.length === 0 && (
-              <p className="admin-empty">Loading the announcement record…</p>
-            )}
+            {state.status === 'loading' && state.items.length === 0 && <AdminRowsSkeleton />}
 
             {state.status === 'error' && (
               <div className="admin-state" role="alert">
@@ -214,11 +287,37 @@ export default function AdminAnnouncements() {
             )}
 
             {state.status === 'success' && state.items.length === 0 && (
-              <p className="admin-empty">
-                {query || status !== 'all'
-                  ? 'No announcements match this filter.'
-                  : 'No announcements exist yet.'}
-              </p>
+              <div className="admin-empty-state">
+                <span className="admin-empty-state__label">RECORD / NO MATCH</span>
+                <h3>
+                  {query || status !== 'all'
+                    ? 'Nothing matches this view.'
+                    : 'The record is still empty.'}
+                </h3>
+                <p>
+                  {query || status !== 'all'
+                    ? 'Clear the search or status filter to see every dispatch.'
+                    : 'Create the first dispatch to start publishing the event record.'}
+                </p>
+                {query || status !== 'all' ? (
+                  <button
+                    className="ann-action ann-action--ghost"
+                    type="button"
+                    onClick={() => {
+                      setSearchInput('')
+                      setQuery('')
+                      setStatus('all')
+                      setPage(1)
+                    }}
+                  >
+                    CLEAR THE VIEW <span aria-hidden="true">↺</span>
+                  </button>
+                ) : (
+                  <Link className="ann-action" to="/admin/announcements/new">
+                    WRITE THE FIRST DISPATCH
+                  </Link>
+                )}
+              </div>
             )}
 
             {state.items.map((item) => (
@@ -241,8 +340,15 @@ export default function AdminAnnouncements() {
                   <small>/{item.slug}</small>
                 </span>
                 <span className="admin-row__category">{item.category}</span>
-                <span className="admin-row__date">
-                  {formatDate(item.updatedAt || item.publishedAt)}
+                <span className="admin-row__dates">
+                  <span>
+                    <small>PUBLISHED</small>
+                    {item.publishedAt ? formatDate(item.publishedAt) : '—'}
+                  </span>
+                  <span>
+                    <small>EDITED</small>
+                    {formatDate(item.updatedAt)}
+                  </span>
                 </span>
                 <span className="admin-row__actions">
                   <button
@@ -250,6 +356,7 @@ export default function AdminAnnouncements() {
                     className="admin-row__action"
                     onClick={() => togglePublished(item)}
                     disabled={busyId === item.id}
+                    aria-label={`${item.isPublished ? 'Unpublish' : 'Publish'} ${item.title}`}
                   >
                     {busyId === item.id
                       ? 'SAVING…'
@@ -257,25 +364,24 @@ export default function AdminAnnouncements() {
                         ? 'UNPUBLISH'
                         : 'PUBLISH'}
                   </button>
-                  <button
-                    type="button"
+                  <Link
                     className="admin-row__action"
-                    onClick={() => {
-                      navigate(`/admin/announcements/${item.id}/edit`)
-                    }}
+                    to={`/admin/announcements/${item.id}/edit`}
+                    aria-label={`Edit ${item.title}`}
                   >
                     EDIT
-                  </button>
+                  </Link>
                   <button
                     type="button"
-                    className={`admin-row__action admin-row__action--danger ${
-                      confirmId === item.id ? 'is-confirming' : ''
-                    }`}
-                    onClick={() => remove(item)}
-                    onBlur={() => setConfirmId(null)}
+                    className="admin-row__action admin-row__action--danger"
+                    onClick={() => {
+                      setActionError(null)
+                      setDeleteTarget(item)
+                    }}
                     disabled={busyId === item.id}
+                    aria-label={`Delete ${item.title}`}
                   >
-                    {confirmId === item.id ? 'CONFIRM?' : 'DELETE'}
+                    DELETE
                   </button>
                 </span>
               </article>
@@ -293,7 +399,8 @@ export default function AdminAnnouncements() {
                 ← PREV
               </button>
               <span>
-                PAGE {meta.page} OF {meta.totalPages} · {meta.total} UPDATES
+                PAGE {meta.page} OF {meta.totalPages} · {meta.total} DISPATCH
+                {meta.total === 1 ? '' : 'ES'}
               </span>
               <button
                 type="button"
@@ -311,6 +418,37 @@ export default function AdminAnnouncements() {
           </p>
         </div>
       </section>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        kicker="DELETE / IRREVERSIBLE"
+        title={
+          <>
+            RETIRE THIS <em className="serif">DISPATCH?</em>
+          </>
+        }
+        confirmLabel="DELETE DISPATCH"
+        busyLabel="DELETING…"
+        busy={deleteBusy}
+        onCancel={() => {
+          if (!deleteBusy) setDeleteTarget(null)
+        }}
+        onConfirm={confirmDelete}
+      >
+        {deleteTarget && (
+          <>
+            <p>
+              <strong>{deleteTarget.title}</strong> will be removed from the event record. If it
+              is published, it will disappear from the public site immediately.
+            </p>
+            <p className="confirm__meta">
+              /{deleteTarget.slug} · {deleteTarget.isPublished ? 'PUBLIC' : 'DRAFT'} ·{' '}
+              {deleteTarget.category.toUpperCase()}
+            </p>
+            <p className="confirm__warning">THIS ACTION CANNOT BE UNDONE.</p>
+          </>
+        )}
+      </ConfirmDialog>
     </main>
   )
 }

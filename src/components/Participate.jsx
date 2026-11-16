@@ -1,6 +1,7 @@
 import { participation } from '../data/site'
 import SectionLabel from './SectionLabel'
 import Cta from './Cta'
+import { Link } from '../lib/router'
 
 export default function Participate({ onOpenRegistration }) {
   return (
@@ -11,7 +12,7 @@ export default function Participate({ onOpenRegistration }) {
     >
       <div className="container participate__grid">
         <div className="participate__intro">
-          <SectionLabel number="06">PARTICIPATE</SectionLabel>
+          <SectionLabel number="07">PARTICIPATE</SectionLabel>
           <h2 id="participate-title" className="display participate__title" data-reveal>
             MAKE{' '}
             <br />
@@ -41,20 +42,54 @@ export default function Participate({ onOpenRegistration }) {
           </p>
         </div>
 
-        <div className="specs" data-reveal style={{ '--reveal-delay': '120ms' }}>
-          <div className="specs__head">
-            <span>PARTICIPATION / SPECS</span>
-            <span>STATUS</span>
+        <div
+          className="entry-pass"
+          data-reveal
+          style={{ '--reveal-delay': '120ms' }}
+          role="group"
+          aria-label="Participation pass — final details to be announced"
+        >
+          <div className="entry-pass__head">
+            <span>C³ / ENTRY PASS</span>
+            <span className="entry-pass__state">
+              <span className="status-dot" aria-hidden="true" />
+              NOT YET ISSUED
+            </span>
           </div>
-          <dl>
+
+          <div className="entry-pass__body">
+            <div className="entry-pass__identity">
+              <span className="entry-pass__kicker">ADMISSION</span>
+              <strong className="entry-pass__title">
+                BUILD
+                <br />
+                <em className="serif">PASS.</em>
+              </strong>
+              <span className="entry-pass__audience">ALTA CAMPUS STUDENTS</span>
+            </div>
+
+            <div className="entry-pass__stub">
+              <span>PASS NO.</span>
+              <strong>—</strong>
+              <span>ISSUED WHEN REGISTRATION OPENS</span>
+            </div>
+          </div>
+
+          <dl className="entry-pass__specs">
             {participation.map((row) => (
-              <div className="specs__row" key={row.label}>
+              <div className="entry-pass__row" key={row.label}>
                 <dt>{row.label}</dt>
                 <dd>{row.value}</dd>
               </div>
             ))}
           </dl>
-          <p className="specs__foot">FINAL DETAILS SUBJECT TO ORGANIZER CONFIRMATION.</p>
+
+          <div className="entry-pass__foot">
+            <span>FINAL DETAILS SUBJECT TO ORGANIZER CONFIRMATION.</span>
+            <Link to="/announcements">
+              FOLLOW THE DISPATCHES <span aria-hidden="true">↗</span>
+            </Link>
+          </div>
         </div>
       </div>
     </section>

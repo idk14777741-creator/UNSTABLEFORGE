@@ -53,7 +53,7 @@ Unstable Forge aims to bring these processes together in one platform.
 - **Organizer Dashboard:** Centralized management of hackathons, registrations and attendees.
 - **Role-Based Access:** Separate permissions for participants, organizers and administrators.
 
-## Routes, Authentication and Live Updates
+## Routes, Authentication and the Editorial Desk
 
 The current build is the Unstable Forge event site for C³, with a client-side history router and a bearer-token API.
 
@@ -99,6 +99,28 @@ The public event experience reads announcements directly from the existing Expre
 - The latest-dispatch feature and homepage cards use the same live data as the archive. When the API changes, a reload of the homepage reflects the new order immediately.
 
 Previous/next links on the detail page are intentionally not fabricated. The existing API exposes ordered pagination and filtering but not adjacency metadata, so the detail page links back to the archive instead of guessing neighbours.
+
+### Admin Announcement Management (Day 10)
+
+`/admin/announcements` is the organizer's editorial desk. It is protected by the existing route guard and every request is still authorized by `requireOrganizer` on the Express API.
+
+- The overview lists the actual announcement record with status, title, slug, category, publication date, last edit date and row actions. Totals for all dispatches, public dispatches and drafts come from the API summary.
+- Search (title and content) and status filters (all, published, drafts) use the existing `GET /api/admin/announcements` endpoint. Pagination updates without leaving the desk.
+- **Create** and **edit** use the real `POST /api/announcements` and `PATCH /api/announcements/:id` endpoints. The editor contains title, content, category, optional slug and publication state, with client validation, server field errors, character counts, an estimated reading time and a local live preview.
+- Submission is loading-aware and guarded against duplicate requests. A failed save leaves the form populated and the save action available for retry. Closing the browser is guarded, and Cancel opens a discard confirmation when there are unsaved changes.
+- **Publish/unpublish** uses `PATCH /api/announcements/:id`. The server controls public visibility; a successful change immediately affects the public archive, detail route and homepage wire. Each action reports success or failure in the manager.
+- **Delete** never fires from the row button. A confirmation dialog identifies the dispatch, shows its slug and status, traps keyboard focus, supports Escape to cancel, and only sends the real `DELETE /api/announcements/:id` after explicit confirmation. Deletion is irreversible.
+- Empty, loading, filtered-empty and network-error states are provided for the record. Drafts remain visible only through the authenticated organizer API.
+
+### Visual Evolution (Day 10)
+
+The public and organizer experiences now share a chapter-based editorial system rather than generic dashboard patterns.
+
+- The homepage carries a fixed chapter HUD after the hero, tracking the active chapter from 01 to 09. Section labels were renumbered to match the same sequence.
+- The participation specifications became a ticket-style **Build Pass** with clear status, facts and a direct path to the dispatches. It keeps every value marked TBA rather than inventing details.
+- Announcement cards carry restrained category-specific accents, and detail pages show reading time and a more useful archive rail.
+- The organizer interface is an **editorial desk**: a summary strip, publication desk, metadata panel, live preview and a typographic form layout consistent with the public brand rather than a generic SaaS table.
+- Motion was kept purposeful: page-entry transitions, the chapter HUD and existing reveal effects, with reduced-motion support. The visual research adapted CodeFiesta's campaign framing and Techfest's information clarity; no reference assets, layouts or brand identities were copied.
 
 ### Current Technology Stack
 
@@ -160,7 +182,7 @@ With the API running:
 npm run test:api
 ```
 
-The suite covers public announcements, newest-first ordering, organizer CRUD, signup validation, duplicate accounts, participant login, role-based `403`s, draft visibility, admin filtering and invalid sessions. Day 9 finished with **59 passing checks**.
+The suite covers public announcements, newest-first ordering, organizer CRUD, signup validation, duplicate accounts, participant login, role-based `403`s, draft visibility, admin filtering and invalid sessions. Day 10 finished with **59 passing checks**; the management milestone reuses these existing authorization and CRUD APIs rather than adding a parallel backend.
 
 ## What I Built and What I Understood
 
@@ -180,9 +202,11 @@ Day 8 made the authentication architecture concrete: a centralized React auth co
 
 Day 9 connected the public experience to the live event record: the homepage now carries a real **LATEST FROM THE FORGE** section, the archive opens with a featured dispatch, and the detail route handles real loading, missing and network states. I verified that a newly published dispatch appeared on both the homepage and its detail URL, and disappeared from both after deletion.
 
-Manual browser checks covered valid and invalid login, signup and duplicate handling, refresh persistence, protected redirects and return paths, participant vs organizer access, logout, expired sessions, direct nested-route loads, mobile layouts and the existing landing page. Day 9 browser checks additionally covered live homepage data, featured archive cards, search, category filters, pagination, empty states, skeleton loading, network errors and retries, direct detail refresh, unpublished `404`s and mobile layouts. The full API suite passes 59/59.
+Day 10 made the organizer workflow safe enough to use rather than simply present: the editorial desk writes to the same SQLite record as the public site, distinguishes publication from drafting, confirms destructive actions, previews the dispatch as it is written, and keeps validation both client- and server-side. The visual work also clarified a principle I want to carry forward: motion and atmosphere should explain the event, while practical information should remain direct and easy to find.
 
-Known limitations: the existing API is bearer-token based, so the session is kept in `localStorage`; an XSS vulnerability could expose a token, and a future iteration should move to HttpOnly, SameSite cookies with CSRF protection. Detail-page previous/next navigation is not implemented because the announcement API does not expose adjacency metadata.
+Manual browser checks covered login success/failure, signup and duplicate handling, refresh persistence, protected redirects and return paths, participant vs organizer access, logout, expired sessions, direct nested-route loads and mobile layouts. Day 10 checks covered the live management table, create, edit, publish, unpublish, delete confirmation and cancellation, API failure recovery, the live preview, draft filtering, public visibility after each change, chapter HUD activation, responsive desk and pass layouts. The full API suite passes 59/59.
+
+Known limitations: the existing API is bearer-token based, so the session is kept in `localStorage`; an XSS vulnerability could expose a token, and a future iteration should move to HttpOnly, SameSite cookies with CSRF protection. Detail-page previous/next navigation is not implemented because the announcement API does not expose adjacency metadata. Announcement content remains plain text (blank lines become paragraphs) because that is the existing API contract; rich text, media uploads, scheduled publishing and revision history are not implemented.
 
 ## Project Identity
 

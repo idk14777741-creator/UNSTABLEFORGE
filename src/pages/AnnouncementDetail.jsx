@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from '../lib/router'
 import { apiGet, ApiError } from '../lib/api'
-import { formatDate } from '../data/announcements'
+import { formatDate, readingTime } from '../data/announcements'
 import { brand } from '../data/site'
 
 export default function AnnouncementDetail({ slug }) {
@@ -144,6 +144,11 @@ export default function AnnouncementDetail({ slug }) {
             <span>FROM THE FORGE</span>
             <span>CATEGORY / {announcement.category.toUpperCase()}</span>
             <span>UPDATED / {formatDate(announcement.updatedAt)}</span>
+            <span>READ / {readingTime(announcement.content)} MIN</span>
+            <span className="ann-detail-rail__line" aria-hidden="true" />
+            <span className="ann-detail-rail__note">
+              Published by the C³ organizers. Unconfirmed details remain marked as TBA.
+            </span>
           </aside>
 
           <div className="ann-detail-content">
@@ -158,7 +163,7 @@ export default function AnnouncementDetail({ slug }) {
             <span>MORE DISPATCHES</span>
             <span aria-hidden="true">↗</span>
           </Link>
-          <p>Published updates only. Unconfirmed event details remain marked as TBA.</p>
+          <p>END OF DISPATCH / PUBLISHED UPDATES ONLY</p>
         </div>
       </article>
     </main>

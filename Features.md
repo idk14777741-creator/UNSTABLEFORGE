@@ -327,7 +327,7 @@ Day 8 turned the event site into a routed application without replacing its visu
 
 #### Organizer Control Room
 
-The control room reuses the Day 7 announcement API. It provides counts for total, published and draft dispatches; recent activity; search, status filters and pagination; publish/unpublish; edit; and two-step delete. The editor creates or updates dispatches and keeps publication state explicit.
+The control room reuses the Day 7 announcement API. It provides counts for total, published and draft dispatches; recent activity; search, status filters and pagination; publish/unpublish; edit; and delete with confirmation. The editor creates or updates dispatches and keeps publication state explicit.
 
 #### Verification
 
@@ -358,6 +358,36 @@ Day 9 connected the public event experience to the real announcement record with
 #### Verification
 
 `npm run test:api` passes **59/59** checks, including newest-first ordering and the existing publication/authorization coverage. Browser checks confirmed that a newly published dispatch appears first on the homepage and on its detail URL, then disappears from both after deletion. Archive search, category filters, featured lead placement, card indexing, pagination, empty states, retry flows, skeleton loading, direct detail refreshes, unpublished `404`s and mobile layouts were exercised against the running API.
+
+### Day 10 — Editorial Desk and Visual Evolution
+
+Day 10 completed the organizer announcement workflow and evolved the public experience into a more coherent, chapter-driven event site. Existing routes, authentication, APIs and data models were preserved.
+
+#### Announcement Management
+
+- `/admin/announcements` loads the real organizer record with a summary of all, public and draft dispatches, plus search, status filters and pagination.
+- Each row shows publication state, title, slug, category, publication date, last-edited date and available actions.
+- Create and edit share a dedicated **editorial desk** rather than a generic form. Title, content, category, optional slug and publication state are validated on both client and server, with field-level error messages and focus to the first invalid field.
+- The editor shows word count, character count, estimated reading time, dispatch metadata and a live local preview of the card. Public dispatches also expose a direct link to their public page.
+- Save operations disable duplicate submissions, retain the form after a failed request, and recover the button state. Unsaved edits trigger a discard confirmation and a browser unload warning.
+- Publish and unpublish write through the existing `PATCH /api/announcements/:id` endpoint. The list reports success or failure and refreshes from the API.
+- Delete opens a modal confirmation with the dispatch title, slug and state. Escape cancels, focus is trapped and restored, background scrolling is locked, and the real `DELETE` request is sent only after confirmation.
+
+#### Visual Evolution
+
+- A fixed chapter HUD tracks the active homepage section from 01 to 09 after the hero, aligning the section labels into one campaign sequence.
+- The participation specifications now read as a ticket-style **Build Pass**, preserving all TBA statuses while making the information scannable.
+- Announcement cards use restrained category accents and detail pages show reading time and a clearer archive rail.
+- The organizer screens use the same ink, ivory, copper, mono labels and display typography as the public site. The management page has a summary strip and the editor has a publication desk, metadata panel and preview rather than a generic dashboard.
+- Page-entry motion and the HUD are restrained and respect reduced-motion preferences. The design research adapted CodeFiesta's campaign framing and Techfest's information clarity without copying their assets, branding or layouts.
+
+#### Verification
+
+`npm run test:api` passes **59/59** checks against the existing API, including organizer CRUD, role authorization, public-only visibility, newest-first ordering and invalid sessions. Browser verification created a real dispatch, edited its title/content/category, published it, saw it appear on the public detail page and homepage, unpublished it, confirmed public `404`, republished it, and deleted it after confirming the modal. Client validation, API failure recovery, draft filtering, live preview, mobile management layouts, modal focus handling and existing login/protected routing were also exercised.
+
+#### Known Limitations
+
+Announcement content remains plain text with blank-line paragraphs, matching the existing API. Rich text, media uploads, scheduled publishing and revision history are not implemented. The detail page still has no previous/next links because the API does not expose adjacency metadata. Admin search, status and page selection reset when returning from the editor.
 
 This section is updated as features are actually implemented and concepts are understood.
 

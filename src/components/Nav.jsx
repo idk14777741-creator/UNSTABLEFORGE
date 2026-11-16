@@ -273,6 +273,7 @@ export default function Nav({ onOpenRegistration }) {
                 <Link
                   className={`nav__account-link ${isAdmin ? 'is-active' : ''}`}
                   to="/admin"
+                  aria-current={isAdmin ? 'page' : undefined}
                 >
                   ADMIN
                 </Link>

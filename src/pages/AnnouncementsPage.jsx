@@ -28,7 +28,11 @@ function pageList(current, total) {
 
 function AnnouncementCard({ item, index }) {
   return (
-    <Link className="ann-card" to={`/announcements/${item.slug}`}>
+    <Link
+      className="ann-card"
+      to={`/announcements/${item.slug}`}
+      data-category={item.category.toLowerCase()}
+    >
       <span className="ann-card__top">
         <span className="ann-card__index">{String(index).padStart(2, '0')}</span>
         <span className="ann-card__category">{item.category}</span>
@@ -47,7 +51,11 @@ function AnnouncementCard({ item, index }) {
 
 function FeaturedDispatch({ item }) {
   return (
-    <Link className="ann-feature" to={`/announcements/${item.slug}`}>
+    <Link
+      className="ann-feature"
+      to={`/announcements/${item.slug}`}
+      data-category={item.category.toLowerCase()}
+    >
       <span className="ann-feature__watermark" aria-hidden="true">
         01
       </span>

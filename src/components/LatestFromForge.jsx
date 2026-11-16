@@ -59,7 +59,7 @@ export default function LatestFromForge() {
       <div className="container">
         <div className="latest__head">
           <div>
-            <SectionLabel number="LIVE">FROM THE FORGE</SectionLabel>
+            <SectionLabel number="06">FROM THE FORGE</SectionLabel>
             <h2 id="latest-title" className="display latest__title" data-reveal>
               LATEST FROM THE <em className="serif">FORGE.</em>
             </h2>
@@ -123,7 +123,11 @@ export default function LatestFromForge() {
 
         {state.status === 'success' && featured && (
           <div className={`latest__grid ${rest.length === 0 ? 'is-solo' : ''}`}>
-            <Link className="latest-feature" to={`/announcements/${featured.slug}`}>
+            <Link
+              className="latest-feature"
+              to={`/announcements/${featured.slug}`}
+              data-category={featured.category.toLowerCase()}
+            >
               <span className="latest-feature__index" aria-hidden="true">
                 01
               </span>

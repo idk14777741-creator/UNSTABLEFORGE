@@ -73,7 +73,7 @@ export default function Hero({ onOpenRegistration }) {
 
         <div className="hero__visual">
           <span className="hero__visual-index" aria-hidden="true">
-            01 / 08
+            ISSUE / 01
           </span>
           <CrescentArt />
         </div>

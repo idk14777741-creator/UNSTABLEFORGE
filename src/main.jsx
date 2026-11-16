@@ -5,6 +5,7 @@ import { AuthProvider } from './context/AuthContext'
 import './styles.css'
 import './announcements.css'
 import './auth.css'
+import './day10.css'
 
 document.documentElement.classList.remove('no-js')
 document.documentElement.classList.add('js')

@@ -2,6 +2,11 @@ export const CATEGORIES = ['All', 'Important', 'Registration', 'Schedule', 'Comp
 
 export const PAGE_SIZE = 6
 
+export function readingTime(content = '') {
+  const words = content.trim().split(/\s+/).filter(Boolean).length
+  return Math.max(1, Math.ceil(words / 220))
+}
+
 export function formatDate(value) {
   if (!value) return 'UNPUBLISHED'
   const date = new Date(value)

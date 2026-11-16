@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Nav from './components/Nav'
 import ScrollProgress from './components/ScrollProgress'
+import ChapterHud from './components/ChapterHud'
 import Hero from './components/Hero'
 import Idea from './components/Idea'
 import Challenge from './components/Challenge'
@@ -158,6 +159,8 @@ export default function App() {
           <FinalCta onOpenRegistration={openRegistration} />
         </main>
       )}
+
+      {isHome && <ChapterHud />}
 
       {isAnnouncements && <AnnouncementsPage />}
 
