@@ -20,6 +20,7 @@ export default function AdminDashboard() {
   const { user, request } = useAuth()
   const [state, setState] = useState({ status: 'loading', items: [], summary: null, error: null })
   const [registrationCount, setRegistrationCount] = useState(null)
+  const [projectCount, setProjectCount] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
@@ -61,6 +62,20 @@ export default function AdminDashboard() {
       })
       .catch(() => {
         if (active) setRegistrationCount(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [request, reloadKey])
+
+  useEffect(() => {
+    let active = true
+    request('/api/admin/projects?limit=1')
+      .then((body) => {
+        if (active) setProjectCount(body.meta?.summary?.total ?? 0)
+      })
+      .catch(() => {
+        if (active) setProjectCount(null)
       })
     return () => {
       active = false
@@ -132,7 +147,7 @@ export default function AdminDashboard() {
             </div>
           ) : (
             <>
-              <div className="admin-stats admin-stats--four">
+              <div className="admin-stats admin-stats--five">
                 <Stat label="TOTAL DISPATCHES" value={summary.total} note="All statuses" />
                 <Stat label="PUBLIC" value={summary.published} note="Visible on the event site" />
                 <Stat label="DRAFTS" value={summary.drafts} note="Private until published" />
@@ -140,6 +155,11 @@ export default function AdminDashboard() {
                   label="REGISTRATIONS"
                   value={registrationCount ?? '—'}
                   note="Participants in the record"
+                />
+                <Stat
+                  label="PROJECTS"
+                  value={projectCount ?? '—'}
+                  note="All submission states"
                 />
               </div>
 
@@ -149,6 +169,9 @@ export default function AdminDashboard() {
                 </Link>
                 <Link className="ann-action" to="/admin/registrations">
                   VIEW REGISTRATIONS
+                </Link>
+                <Link className="ann-action" to="/admin/projects">
+                  MODERATE PROJECTS
                 </Link>
                 <Link className="ann-action ann-action--ghost" to="/admin/announcements/new">
                   NEW DISPATCH

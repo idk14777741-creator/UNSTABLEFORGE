@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { navLinks, brand, updatesLink } from '../data/site'
+import { navLinks, brand, projectsLink, updatesLink } from '../data/site'
 import Mark from './Mark'
 import Cta from './Cta'
 import { Link, useRoute } from '../lib/router'
@@ -14,12 +14,13 @@ export default function Nav({ onOpenRegistration }) {
   const isUpdates = pathname.startsWith('/announcements')
   const isAdmin = pathname.startsWith('/admin')
   const isRegistration = pathname === '/register'
+  const isProjects = pathname.startsWith('/projects')
   const SectionTag = isHome ? 'a' : Link
   const BrandTag = isHome ? 'a' : Link
   const sectionProps = (link) => (isHome ? { href: link.href } : { to: `/${link.href}` })
   const brandProps = isHome ? { href: '#top' } : { to: '/' }
   const [scrolled, setScrolled] = useState(false)
-  const overDark = (isUpdates || isAdmin || isRegistration) && !scrolled
+  const overDark = (isUpdates || isAdmin || isRegistration || isProjects) && !scrolled
   const [active, setActive] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const menuButtonRef = useRef(null)
@@ -179,12 +180,25 @@ export default function Nav({ onOpenRegistration }) {
             ))}
             <Link
               className="menu__link"
-              to={updatesLink.href}
+              to={projectsLink.href}
               onClick={handleMenuNavigate}
               style={{ '--menu-index': navLinks.length }}
-              aria-current={isUpdates ? 'page' : undefined}
+              aria-current={isProjects ? 'page' : undefined}
             >
               <span className="menu__index">0{navLinks.length + 1}</span>
+              <span>{projectsLink.label}</span>
+              <span className="menu__arrow" aria-hidden="true">
+                ↗
+              </span>
+            </Link>
+            <Link
+              className="menu__link"
+              to={updatesLink.href}
+              onClick={handleMenuNavigate}
+              style={{ '--menu-index': navLinks.length + 1 }}
+              aria-current={isUpdates ? 'page' : undefined}
+            >
+              <span className="menu__index">0{navLinks.length + 2}</span>
               <span>{updatesLink.label}</span>
               <span className="menu__arrow" aria-hidden="true">
                 ↗
@@ -199,6 +213,9 @@ export default function Nav({ onOpenRegistration }) {
                 <div className="menu__account-links">
                   <Link to="/register" onClick={handleMenuNavigate}>
                     MY REGISTRATION
+                  </Link>
+                  <Link to="/projects/mine" onClick={handleMenuNavigate}>
+                    MY PROJECTS
                   </Link>
                   {isOrganizer && (
                     <Link to="/admin" onClick={handleMenuNavigate}>
@@ -260,6 +277,13 @@ export default function Nav({ onOpenRegistration }) {
               {link.label}
             </SectionTag>
           ))}
+          <Link
+            className={`nav__link ${isProjects ? 'is-active' : ''}`}
+            to={projectsLink.href}
+            aria-current={isProjects ? 'page' : undefined}
+          >
+            {projectsLink.label}
+          </Link>
           <Link
             className={`nav__link ${isUpdates ? 'is-active' : ''}`}
             to={updatesLink.href}

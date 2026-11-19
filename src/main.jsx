@@ -7,6 +7,7 @@ import './announcements.css'
 import './auth.css'
 import './day10.css'
 import './day11.css'
+import './day12.css'
 
 document.documentElement.classList.remove('no-js')
 document.documentElement.classList.add('js')

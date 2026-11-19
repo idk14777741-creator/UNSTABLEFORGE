@@ -20,11 +20,16 @@ import AnnouncementDetail from './pages/AnnouncementDetail'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
 import RegisterPage from './pages/RegisterPage'
+import ProjectsPage from './pages/ProjectsPage'
+import ProjectDetail from './pages/ProjectDetail'
+import MyProjectsPage from './pages/MyProjectsPage'
+import ProjectEditor from './pages/ProjectEditor'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminAnnouncements from './pages/admin/AdminAnnouncements'
 import AdminEditor from './pages/admin/AdminEditor'
 import AdminRegistrations from './pages/admin/AdminRegistrations'
+import AdminProjects from './pages/admin/AdminProjects'
 import { Link, navigate, useRoute } from './lib/router'
 import { roleHome, safeNext, useAuth } from './context/AuthContext'
 import { useReveal } from './hooks/useReveal'
@@ -131,16 +136,22 @@ export default function App() {
 
   const detailMatch = pathname.match(/^\/announcements\/([^/]+)$/)
   const editorMatch = pathname.match(/^\/admin\/announcements\/(\d+)\/edit$/)
+  const projectDetailMatch = pathname.match(/^\/projects\/(?!mine$|submit$)([^/]+)$/)
+  const projectEditMatch = pathname.match(/^\/projects\/(\d+)\/edit$/)
   const isHome = pathname === '/'
   const isAnnouncements = pathname === '/announcements'
   const isLogin = pathname === '/login'
   const isSignup = pathname === '/signup'
   const isRegister = pathname === '/register'
+  const isProjects = pathname === '/projects'
+  const isMyProjects = pathname === '/projects/mine'
+  const isProjectSubmit = pathname === '/projects/submit'
   const isUnauthorized = pathname === '/unauthorized'
   const isAdminHome = pathname === '/admin'
   const isAdminList = pathname === '/admin/announcements'
   const isAdminNew = pathname === '/admin/announcements/new'
   const isAdminRegistrations = pathname === '/admin/registrations'
+  const isAdminProjects = pathname === '/admin/projects'
   const isAuthPage = isLogin || isSignup
   const isKnownRoute =
     isHome ||
@@ -149,11 +160,17 @@ export default function App() {
     isLogin ||
     isSignup ||
     isRegister ||
+    isProjects ||
+    Boolean(projectDetailMatch) ||
+    isMyProjects ||
+    isProjectSubmit ||
+    Boolean(projectEditMatch) ||
     isUnauthorized ||
     isAdminHome ||
     isAdminList ||
     isAdminNew ||
     isAdminRegistrations ||
+    isAdminProjects ||
     Boolean(editorMatch)
 
   return (
@@ -204,6 +221,28 @@ export default function App() {
         </RequireAuth>
       )}
 
+      {isProjects && <ProjectsPage />}
+
+      {projectDetailMatch && <ProjectDetail slug={decodeURIComponent(projectDetailMatch[1])} />}
+
+      {isMyProjects && (
+        <RequireAuth>
+          <MyProjectsPage />
+        </RequireAuth>
+      )}
+
+      {isProjectSubmit && (
+        <RequireAuth>
+          <ProjectEditor />
+        </RequireAuth>
+      )}
+
+      {projectEditMatch && (
+        <RequireAuth>
+          <ProjectEditor id={projectEditMatch[1]} />
+        </RequireAuth>
+      )}
+
       {isUnauthorized && <UnauthorizedPage />}
 
       {isAdminHome && (
@@ -227,6 +266,12 @@ export default function App() {
       {isAdminRegistrations && (
         <RequireOrganizer>
           <AdminRegistrations />
+        </RequireOrganizer>
+      )}
+
+      {isAdminProjects && (
+        <RequireOrganizer>
+          <AdminProjects />
         </RequireOrganizer>
       )}
 

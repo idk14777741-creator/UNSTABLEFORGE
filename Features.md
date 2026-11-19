@@ -423,6 +423,55 @@ Day 11 added the real participant entry flow on the existing account, API and SQ
 
 Registration status is a single confirmed `registered` state because no approval, capacity, payment or waitlist rules have been confirmed. The display reference is derived from the database id for human use; it is not a separate ticket or QR credential. Event logistics remain TBA.
 
+### Day 12 — Participant Project Showcase
+
+Day 12 turned the planned showcase into a real, curated exhibition backed by participant submissions and organizer moderation.
+
+#### Public Showcase
+
+- `/projects` reads only `published` projects from the existing SQLite database through `GET /api/projects`.
+- Search covers title, tagline, description, technologies and public team/creator attribution. Category filters, pagination, loading skeletons, empty states, filtered-empty states, network errors and retry actions are implemented.
+- Project cards use an asymmetric exhibit grid rather than a uniform CRUD table: a single published project becomes a split full-width feature, two or four projects form paired rows, and larger result sets alternate broad cards with a three-up wall.
+- Cards show title, tagline, category, technologies, public attribution and optional cover image. Missing covers use a typographic fallback; no placeholder projects are seeded.
+
+#### Project Detail
+
+- `/projects/:slug` loads real published data from the public API.
+- Full descriptions render as plain-text paragraphs. The page includes the technology stack, public attribution, category, publication date, event, optional cover image and validated repository/demo links.
+- External links open in a new tab with `noopener noreferrer`. Owner account IDs and emails are never serialized into public project responses.
+
+#### Participant Submission and Ownership
+
+- Signed-in participants can create and edit their own projects at `/projects/submit`, `/projects/mine` and `/projects/:id/edit`.
+- Fields: title, tagline, full description, category, 1–12 technologies, optional public team/creator name, optional GitHub repository, optional live demo and optional cover image URL.
+- Validation is duplicated on the client and server. Titles are 3–120 characters, taglines 8–160, descriptions 40–12,000, each technology 40 characters or fewer, and all links must be HTTP(S); repository links must be HTTPS GitHub URLs.
+- The owner and event are assigned from the authenticated session. A submitted user id is ignored.
+- Owners can save `draft` or `submitted`, return a submission to draft, and delete unpublished records. They cannot set `published`, edit a published record or delete a published record.
+- `/api/projects/mine` only returns the signed-in owner's records; `/api/projects/mine/:id` returns `404` for another owner's project.
+- The editor includes a live card preview, character counts, field-level server errors and explicit save-draft versus submit-for-review actions.
+
+#### Organizer Moderation
+
+- `/admin/projects` is protected by the existing organizer route guard and `requireOrganizer` on every API call.
+- The moderation wall shows real summary counts for all, in-review, published and rejected projects; search, status filters, category filters and pagination use the API.
+- Rows expose title, category, public team name, owner email, state and last update. Expanding a row shows the tagline, full description, stack, creation/publication dates and external links.
+- `PATCH /api/admin/projects/:id` publishes, rejects/unpublishes or returns a submission to review. Publication is never automatic, and rejection immediately removes public access.
+
+#### Database and API
+
+- `projects` table: event and user foreign keys, title, unique slug, tagline, description, category, JSON technology list, public team name, repository/demo/cover URLs, status (`draft`, `submitted`, `published`, `rejected`), timestamps and publication timestamp.
+- Public: `GET /api/projects`, `GET /api/projects/:identifier`.
+- Owner: `GET /api/projects/mine`, `GET /api/projects/mine/:id`, `POST /api/projects`, `PATCH /api/projects/:id`, `DELETE /api/projects/:id`.
+- Organizer: `GET /api/admin/projects`, `PATCH /api/admin/projects/:id`.
+
+#### Verification
+
+`npm run test:api` passes **96/96** checks. Project coverage includes authentication, validation and unsafe URL rejection, session-derived ownership, private draft visibility, owner listing, non-owner edit rejection, self-publication rejection, organizer-only moderation, publishing, public detail privacy, real search, published-record locking, rejection/unpublication, return to review and cleanup. `npm run build` succeeds. Browser checks submitted a real project through the form, observed it enter review, expanded it in the moderation wall, published it, confirmed the public card and detail page, and verified the owner lock after publication.
+
+#### Known Limitations
+
+The showcase has no media upload pipeline; cover images are supplied as external URLs. Project descriptions are plain text, matching the existing announcement content model. There is no revision history, team-member entity, review comment field or automatic re-review after an organizer unpublishes and an owner edits. Team Finder is intentionally not part of this milestone.
+
 This section is updated as features are actually implemented and concepts are understood.
 
 ---

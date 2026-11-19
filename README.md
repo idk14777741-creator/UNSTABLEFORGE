@@ -65,6 +65,11 @@ The current build is the Unstable Forge event site for C³, with a client-side h
 | `/login` | Guests | Sign in with an existing account |
 | `/signup` | Guests | Create a participant account |
 | `/register` | Signed-in participants | C³ registration desk and saved registration status |
+| `/projects` | Public | Published project showcase with search, categories and pagination |
+| `/projects/:slug` | Public | Project detail with stack, attribution and validated external links |
+| `/projects/mine` | Signed-in participants | Owner's project desk across every submission state |
+| `/projects/submit` | Signed-in participants | Create a project draft or submit it for review |
+| `/projects/:id/edit` | Signed-in project owner | Edit an unpublished project; published records are locked |
 | `/announcements` | Public | Searchable, filtered announcement archive |
 | `/announcements/:slug` | Public | Announcement detail |
 | `/admin` | Organizer / admin | Control room dashboard |
@@ -72,6 +77,7 @@ The current build is the Unstable Forge event site for C³, with a client-side h
 | `/admin/announcements/new` | Organizer / admin | Create a dispatch |
 | `/admin/announcements/:id/edit` | Organizer / admin | Edit an existing dispatch |
 | `/admin/registrations` | Organizer / admin | Searchable participant registration record |
+| `/admin/projects` | Organizer / admin | Project moderation, review and publication control |
 | `/unauthorized` | Signed-in non-organizers | Clear 403 state |
 | Any other path | Public | Custom 404 page |
 
@@ -126,6 +132,18 @@ Previous/next links on the detail page are intentionally not fabricated. The exi
 - `/admin/registrations` is the organizer-only entry record. It provides totals, campus count, search by name/email/campus, campus filtering, pagination and registration timestamps from the live API.
 - `requireAuth` protects participant writes and `requireOrganizer` protects the organizer record server-side. A participant calling the organizer endpoint receives `403`.
 - The homepage, participation copy, journey, registration dialog and navigation now point to the open registration desk while preserving every event detail still marked TBA. No capacity, deadline, payment, team or approval workflow was invented.
+
+### Project Showcase and Moderation (Day 12)
+
+The showcase is a real, API-backed exhibition. It begins empty rather than seeding fictional projects.
+
+- `/projects` calls `GET /api/projects`, which only returns records with status `published`. Search covers title, tagline, description, technologies and team name; category filters use the fixed project taxonomy; pagination is server-side. Loading, empty, filtered-empty, error and retry states are implemented.
+- Cards are deliberately asymmetric: a single project becomes a full-width split exhibit, two or four projects form paired rows, and larger result sets alternate feature cards with a three-up grid. Cover images are optional; missing images fall back to a typographic exhibit mark.
+- `/projects/:slug` loads real published data from `GET /api/projects/:identifier`. It shows the full description as plain-text paragraphs, technologies, public attribution, publication information, a validated repository/demo link and an optional cover image. Owner account emails and IDs are never returned by the public serializer.
+- Signed-in participants use `/projects/submit` or `/projects/:id/edit`. The editor supports title, tagline, description, category, 1–12 technologies, optional public team/creator name, GitHub repository, demo URL and cover image URL. Client and server enforce matching limits; repository links must be HTTPS GitHub URLs and all external links must be HTTP(S).
+- Project ownership is taken from the session, not from request data. Owners can read only their own `/api/projects/mine` records. Drafts and submissions are editable; an owner cannot set `published`, edit a published project or delete a published record. Deletion is allowed for the owner's unpublished records and by an organizer.
+- `/admin/projects` is the organizer moderation wall. It exposes real summary counts, search, status/category filters, pagination, expandable submission detail and owner email. Organizers publish, reject/unpublish and return records to review through `PATCH /api/admin/projects/:id`; every action is authorized server-side.
+- Publication is always manual. No participant submission appears publicly until an organizer publishes it, and rejected or unpublished projects immediately return `404` on public routes.
 
 ### Visual Evolution (Day 10)
 
@@ -197,7 +215,7 @@ With the API running:
 npm run test:api
 ```
 
-The suite covers public announcements, newest-first ordering, organizer CRUD, signup validation, duplicate accounts, participant login, role-based `403`s, draft visibility, admin filtering, invalid sessions, registration validation, registration persistence, duplicate rejection and organizer registration search/filtering. Day 11 finished with **72 passing checks**.
+The suite covers public announcements, newest-first ordering, organizer CRUD, signup validation, duplicate accounts, participant login, role-based `403`s, draft visibility, admin filtering, invalid sessions, registration validation, registration persistence, duplicate rejection, organizer registration search/filtering, project submission validation, project ownership, public visibility, publication moderation and safe link rejection. Day 12 finished with **96 passing checks**.
 
 ## What I Built and What I Understood
 
@@ -219,7 +237,7 @@ Day 9 connected the public experience to the live event record: the homepage now
 
 Day 10 made the organizer workflow safe enough to use rather than simply present: the editorial desk writes to the same SQLite record as the public site, distinguishes publication from drafting, confirms destructive actions, previews the dispatch as it is written, and keeps validation both client- and server-side. The visual work also clarified a principle I want to carry forward: motion and atmosphere should explain the event, while practical information should remain direct and easy to find.
 
-Manual browser checks covered login success/failure, signup and duplicate handling, refresh persistence, protected redirects and return paths, participant vs organizer access, logout, expired sessions, direct nested-route loads and mobile layouts. Day 10 checks covered the live management table, create, edit, publish, unpublish, delete confirmation and cancellation, API failure recovery, the live preview, draft filtering, public visibility after each change, chapter HUD activation, responsive desk and pass layouts. Day 11 checks covered the signed-out redirect to login, a real participant registration, the confirmation pass, refresh persistence, duplicate rejection through the API, and the organizer entry record with live totals and detail rows. The full API suite passes 72/72 and the production build succeeds.
+Manual browser checks covered login success/failure, signup and duplicate handling, refresh persistence, protected redirects and return paths, participant vs organizer access, logout, expired sessions, direct nested-route loads and mobile layouts. Day 10 checks covered the live management table, create, edit, publish, unpublish, delete confirmation and cancellation, API failure recovery, the live preview, draft filtering, public visibility after each change, chapter HUD activation, responsive desk and pass layouts. Day 11 checks covered the signed-out redirect to login, a real participant registration, the confirmation pass, refresh persistence, duplicate rejection through the API, and the organizer entry record with live totals and detail rows. Day 12 checks created a real project through the participant editor, verified it stayed private in review, expanded it in the organizer wall, published it, confirmed the public card and detail page, checked that the published project locked for its owner, and exercised public search. The full API suite passes 96/96 and the production build succeeds.
 
 Known limitations: the existing API is bearer-token based, so the session is kept in `localStorage`; an XSS vulnerability could expose a token, and a future iteration should move to HttpOnly, SameSite cookies with CSRF protection. Detail-page previous/next navigation is not implemented because the announcement API does not expose adjacency metadata. Announcement content remains plain text (blank lines become paragraphs) because that is the existing API contract; rich text, media uploads, scheduled publishing and revision history are not implemented.
 

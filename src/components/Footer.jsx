@@ -1,4 +1,4 @@
-import { brand, navLinks, socials, updatesLink } from '../data/site'
+import { brand, navLinks, projectsLink, socials, updatesLink } from '../data/site'
 import Mark from './Mark'
 import { Link, useRoute } from '../lib/router'
 
@@ -6,6 +6,7 @@ const footerLinks = [
   ...navLinks,
   { id: 'stakes', label: 'PRIZE STATUS', href: '#stakes' },
   { id: 'participate', label: 'PARTICIPATE', href: '#participate' },
+  { id: projectsLink.id, label: 'PROJECT SHOWCASE', href: projectsLink.href },
   { id: updatesLink.id, label: updatesLink.label, href: updatesLink.href },
 ]
 

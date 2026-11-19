@@ -17,6 +17,12 @@ export const navLinks = [
   { id: 'faq', label: 'FAQ', href: '#faq' },
 ]
 
+export const projectsLink = {
+  id: 'projects',
+  label: 'PROJECTS',
+  href: '/projects',
+}
+
 export const updatesLink = {
   id: 'updates',
   label: 'UPDATES',

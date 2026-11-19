@@ -65,6 +65,35 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_registrations_event
     ON registrations (event_id, created_at DESC);
 
+  CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    tagline TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL,
+    technologies TEXT NOT NULL DEFAULT '[]',
+    team_name TEXT,
+    repo_url TEXT,
+    demo_url TEXT,
+    cover_image_url TEXT,
+    status TEXT NOT NULL DEFAULT 'draft'
+      CHECK (status IN ('draft', 'submitted', 'published', 'rejected')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    published_at TEXT,
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_projects_public
+    ON projects (status, published_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_projects_event
+    ON projects (event_id);
+  CREATE INDEX IF NOT EXISTS idx_projects_owner
+    ON projects (user_id);
 `)
 
 const now = () => new Date().toISOString()

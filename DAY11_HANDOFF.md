@@ -94,5 +94,5 @@ Registration responses expose the display reference, full name, campus, account 
 
 ## 8. Git Commit and Push
 
-- Commit: `3726cb6` — `feat: implement C3 participant registration flow`
+- Commit: `80db690` — `feat: implement C3 participant registration flow`
 - Push: pushed to `origin/main`

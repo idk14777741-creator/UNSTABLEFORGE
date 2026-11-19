@@ -471,6 +471,199 @@ async function main() {
       adminRegistrationCampus.body.data.every((item) => item.campus === 'ALTA Test Campus'),
   )
 
+  // --------------------------------------------------- Day 12 project showcase
+
+  const projectNoAuth = await request('/api/projects', {
+    method: 'POST',
+    body: JSON.stringify({ title: 'No Auth Project' }),
+  })
+  check('project submission requires authentication', projectNoAuth.status === 401)
+
+  const projectPayload = {
+    title: 'Day 12 Showcase Test',
+    tagline: 'A temporary real project record for the showcase lifecycle',
+    description:
+      'This project record exists only to verify the real submission, moderation and public visibility flow. It is removed at the end of the suite.',
+    category: 'Web',
+    technologies: ['React', 'Express', 'SQLite'],
+    teamName: 'Test Builders',
+    repoUrl: 'https://github.com/example/day12-showcase-test',
+    demoUrl: 'https://example.com/day12-demo',
+    coverImageUrl: 'https://example.com/day12-cover.jpg',
+    status: 'submitted',
+    userId: 999999,
+  }
+
+  const projectInvalid = await request('/api/projects', {
+    method: 'POST',
+    headers: participantAuth,
+    body: JSON.stringify({
+      ...projectPayload,
+      title: 'x',
+      technologies: [],
+      repoUrl: 'javascript:alert(1)',
+    }),
+  })
+  check(
+    'project validation rejects short titles, empty stacks and unsafe URLs',
+    projectInvalid.status === 400 &&
+      Boolean(projectInvalid.body.error?.fields?.title) &&
+      Boolean(projectInvalid.body.error?.fields?.technologies) &&
+      Boolean(projectInvalid.body.error?.fields?.repoUrl),
+  )
+
+  const projectCreated = await request('/api/projects', {
+    method: 'POST',
+    headers: participantAuth,
+    body: JSON.stringify(projectPayload),
+  })
+  const project = projectCreated.body.data
+  check(
+    'participant can submit a real project for review',
+    projectCreated.status === 201 &&
+      project.status === 'submitted' &&
+      project.technologies.length === 3 &&
+      /^day-12-showcase-test/.test(project.slug),
+  )
+  check(
+    'project ownership comes from the session, not the submitted user id',
+    projectCreated.body.data.ownerId === undefined &&
+      projectCreated.body.data.ownerEmail === undefined,
+  )
+
+  const projectDraftPublic = await request(`/api/projects/${project.slug}`)
+  check('submitted project is not publicly readable', projectDraftPublic.status === 404)
+  const projectDraftList = await request('/api/projects?q=Day%2012%20Showcase%20Test')
+  check(
+    'submitted project is excluded from the public showcase',
+    projectDraftList.status === 200 && projectDraftList.body.meta.total === 0,
+  )
+
+  const projectMine = await request('/api/projects/mine', { headers: participantAuth })
+  check(
+    'owner can list their project submissions',
+    projectMine.status === 200 &&
+      projectMine.body.data.some((item) => item.id === project.id),
+  )
+
+  const projectOtherOwner = await request(`/api/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: auth,
+    body: JSON.stringify({ title: 'Hijacked project title' }),
+  })
+  check('a non-owner cannot edit another project', projectOtherOwner.status === 403)
+
+  const projectSelfPublish = await request(`/api/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: participantAuth,
+    body: JSON.stringify({ status: 'published' }),
+  })
+  check('owners cannot publish their own project', projectSelfPublish.status === 400)
+
+  const projectAdminNoAuth = await request('/api/admin/projects')
+  check('admin project record requires a token', projectAdminNoAuth.status === 401)
+  const projectAdminParticipant = await request('/api/admin/projects', {
+    headers: participantAuth,
+  })
+  check('participant cannot read the moderation record', projectAdminParticipant.status === 403)
+
+  const projectAdminList = await request(
+    '/api/admin/projects?q=Day%2012%20Showcase%20Test&status=submitted',
+    { headers: auth },
+  )
+  check(
+    'organizer can search and filter submitted projects',
+    projectAdminList.status === 200 &&
+      projectAdminList.body.data.some(
+        (item) => item.id === project.id && item.ownerEmail === participantEmail,
+      ) &&
+      projectAdminList.body.meta.summary.submitted >= 1,
+  )
+
+  const projectAdminInvalid = await request(`/api/admin/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: auth,
+    body: JSON.stringify({ status: 'draft' }),
+  })
+  check('organizer moderation rejects invalid target states', projectAdminInvalid.status === 400)
+
+  const projectPublished = await request(`/api/admin/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: auth,
+    body: JSON.stringify({ status: 'published' }),
+  })
+  check(
+    'organizer can publish a reviewed project',
+    projectPublished.status === 200 && projectPublished.body.data.status === 'published',
+  )
+
+  const projectPublic = await request(`/api/projects/${project.slug}`)
+  check(
+    'published project is publicly readable',
+    projectPublic.status === 200 &&
+      projectPublic.body.data.title === projectPayload.title &&
+      projectPublic.body.data.repoUrl === projectPayload.repoUrl,
+  )
+  check(
+    'public project detail does not expose owner account data',
+    projectPublic.body.data.ownerEmail === undefined &&
+      projectPublic.body.data.ownerId === undefined,
+  )
+
+  const projectPublicSearch = await request('/api/projects?q=React')
+  check(
+    'public project search uses real published data',
+    projectPublicSearch.status === 200 &&
+      projectPublicSearch.body.data.some((item) => item.id === project.id),
+  )
+
+  const projectOwnerEditPublished = await request(`/api/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: participantAuth,
+    body: JSON.stringify({ title: 'Edited after publication' }),
+  })
+  check(
+    'owner cannot edit a published project',
+    projectOwnerEditPublished.status === 409 &&
+      projectOwnerEditPublished.body.error?.code === 'PROJECT_PUBLISHED',
+  )
+
+  const projectOwnerDeletePublished = await request(`/api/projects/${project.id}`, {
+    method: 'DELETE',
+    headers: participantAuth,
+  })
+  check('owner cannot delete a published project', projectOwnerDeletePublished.status === 409)
+
+  const projectRejected = await request(`/api/admin/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: auth,
+    body: JSON.stringify({ status: 'rejected' }),
+  })
+  check(
+    'organizer can reject or unpublish a project',
+    projectRejected.status === 200 && projectRejected.body.data.status === 'rejected',
+  )
+  const projectAfterReject = await request(`/api/projects/${project.slug}`)
+  check('rejected project disappears from public detail routes', projectAfterReject.status === 404)
+
+  const projectReturned = await request(`/api/admin/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: auth,
+    body: JSON.stringify({ status: 'submitted' }),
+  })
+  check(
+    'organizer can return a rejected project to review',
+    projectReturned.status === 200 && projectReturned.body.data.status === 'submitted',
+  )
+
+  const projectCleanup = await request(`/api/projects/${project.id}`, {
+    method: 'DELETE',
+    headers: auth,
+  })
+  check('organizer can delete a test project record', projectCleanup.status === 204)
+  const projectAfterCleanup = await request(`/api/projects/${project.slug}`)
+  check('deleted project no longer resolves publicly', projectAfterCleanup.status === 404)
+
   console.log(`\n${passed} passed, ${failed} failed\n`)
   if (failed > 0) process.exitCode = 1
 }
