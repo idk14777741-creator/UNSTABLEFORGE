@@ -13,12 +13,13 @@ export default function Nav({ onOpenRegistration }) {
   const isHome = pathname === '/'
   const isUpdates = pathname.startsWith('/announcements')
   const isAdmin = pathname.startsWith('/admin')
+  const isRegistration = pathname === '/register'
   const SectionTag = isHome ? 'a' : Link
   const BrandTag = isHome ? 'a' : Link
   const sectionProps = (link) => (isHome ? { href: link.href } : { to: `/${link.href}` })
   const brandProps = isHome ? { href: '#top' } : { to: '/' }
   const [scrolled, setScrolled] = useState(false)
-  const overDark = (isUpdates || isAdmin) && !scrolled
+  const overDark = (isUpdates || isAdmin || isRegistration) && !scrolled
   const [active, setActive] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const menuButtonRef = useRef(null)
@@ -196,6 +197,9 @@ export default function Nav({ onOpenRegistration }) {
               <>
                 <span className="menu__account-id">{user?.email}</span>
                 <div className="menu__account-links">
+                  <Link to="/register" onClick={handleMenuNavigate}>
+                    MY REGISTRATION
+                  </Link>
                   {isOrganizer && (
                     <Link to="/admin" onClick={handleMenuNavigate}>
                       CONTROL ROOM ↗
@@ -221,7 +225,7 @@ export default function Nav({ onOpenRegistration }) {
           <div className="menu__foot">
             <div>
               <p className="menu__event">{brand.event}</p>
-              <p className="menu__note">REGISTRATION DETAILS · TBA</p>
+              <p className="menu__note">REGISTRATION IS OPEN</p>
             </div>
             <Cta onClick={handleMenuCta} variant="light" opensDialog>
               REGISTRATION DETAILS
@@ -269,6 +273,13 @@ export default function Nav({ onOpenRegistration }) {
           <span className="nav__event-status">C³ / TBA</span>
           {status === 'authenticated' ? (
             <div className="nav__account">
+              <Link
+                className={`nav__account-link ${isRegistration ? 'is-active' : ''}`}
+                to="/register"
+                aria-current={isRegistration ? 'page' : undefined}
+              >
+                MY ENTRY
+              </Link>
               {isOrganizer && (
                 <Link
                   className={`nav__account-link ${isAdmin ? 'is-active' : ''}`}

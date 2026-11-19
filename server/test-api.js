@@ -351,6 +351,126 @@ async function main() {
   })
   check('invalid or expired session returns 401', invalidSession.status === 401)
 
+  // ------------------------------------------------------- Day 11 registration
+
+  const registrationNoAuth = await request('/api/registrations', {
+    method: 'POST',
+    body: JSON.stringify({ fullName: 'No Auth', campus: 'None' }),
+  })
+  check('registration requires authentication', registrationNoAuth.status === 401)
+
+  const registrationBefore = await request('/api/registrations/me', { headers: participantAuth })
+  check(
+    'new participant has no registration yet',
+    registrationBefore.status === 200 && registrationBefore.body.data === null,
+  )
+
+  const registrationValidation = await request('/api/registrations', {
+    method: 'POST',
+    headers: participantAuth,
+    body: JSON.stringify({ fullName: 'x', campus: '' }),
+  })
+  check(
+    'registration validation reports names and campus',
+    registrationValidation.status === 400 &&
+      Boolean(registrationValidation.body.error?.fields?.fullName) &&
+      Boolean(registrationValidation.body.error?.fields?.campus),
+  )
+
+  const registration = await request('/api/registrations', {
+    method: 'POST',
+    headers: participantAuth,
+    body: JSON.stringify({
+      fullName: 'Day 11 Participant',
+      campus: 'ALTA Test Campus',
+      userId: 999999,
+    }),
+  })
+  check(
+    'participant can register for C3',
+    registration.status === 201 &&
+      registration.body.data?.fullName === 'Day 11 Participant' &&
+      /^C3-REG-\d{4,}$/.test(registration.body.data?.reference || ''),
+  )
+  check(
+    'registration is bound to the signed-in account',
+    registration.body.data?.email === participantEmail &&
+      registration.body.data?.campus === 'ALTA Test Campus',
+  )
+
+  const registrationDuplicate = await request('/api/registrations', {
+    method: 'POST',
+    headers: participantAuth,
+    body: JSON.stringify({ fullName: 'Day 11 Participant', campus: 'ALTA Test Campus' }),
+  })
+  check(
+    'duplicate registration is rejected with 409',
+    registrationDuplicate.status === 409 &&
+      registrationDuplicate.body.error?.code === 'REGISTRATION_EXISTS',
+  )
+
+  const registrationAfter = await request('/api/registrations/me', { headers: participantAuth })
+  check(
+    'registration persists for its owner',
+    registrationAfter.status === 200 &&
+      registrationAfter.body.data?.reference === registration.body.data.reference &&
+      registrationAfter.body.data?.fullName === 'Day 11 Participant',
+  )
+
+  const registrationPrivate = await request('/api/registrations/1', { headers: participantAuth })
+  check(
+    'there is no cross-participant registration endpoint',
+    registrationPrivate.status === 404,
+  )
+
+  const adminRegistrationsNoAuth = await request('/api/admin/registrations')
+  check('admin registrations require a token', adminRegistrationsNoAuth.status === 401)
+  const adminRegistrationsParticipant = await request('/api/admin/registrations', {
+    headers: participantAuth,
+  })
+  check(
+    'participant cannot read the organizer registration record',
+    adminRegistrationsParticipant.status === 403,
+  )
+
+  const adminRegistrations = await request('/api/admin/registrations?limit=50', { headers: auth })
+  check(
+    'organizer can read registrations with participant details',
+    adminRegistrations.status === 200 &&
+      adminRegistrations.body.data.some(
+        (item) => item.reference === registration.body.data.reference && item.email === participantEmail,
+      ) &&
+      adminRegistrations.body.meta?.summary?.total >= 1 &&
+      adminRegistrations.body.meta.summary.campuses >= 1,
+  )
+
+  const adminRegistrationSearch = await request(
+    `/api/admin/registrations?q=${encodeURIComponent('Day 11 Participant')}&limit=50`,
+    { headers: auth },
+  )
+  check(
+    'organizer can search registrations by participant',
+    adminRegistrationSearch.status === 200 &&
+      adminRegistrationSearch.body.data.every(
+        (item) =>
+          item.fullName.includes('Day 11 Participant') ||
+          item.email.includes('Day 11 Participant') ||
+          item.campus.includes('Day 11 Participant'),
+      ) &&
+      adminRegistrationSearch.body.data.length >= 1,
+  )
+
+  const adminRegistrationCampus = await request(
+    `/api/admin/registrations?campus=${encodeURIComponent('ALTA Test Campus')}&limit=50`,
+    { headers: auth },
+  )
+  check(
+    'organizer can filter registrations by campus',
+    adminRegistrationCampus.status === 200 &&
+      adminRegistrationCampus.body.data.length >= 1 &&
+      adminRegistrationCampus.body.data.every((item) => item.campus === 'ALTA Test Campus'),
+  )
+
   console.log(`\n${passed} passed, ${failed} failed\n`)
   if (failed > 0) process.exitCode = 1
 }

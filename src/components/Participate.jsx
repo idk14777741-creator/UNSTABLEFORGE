@@ -19,26 +19,25 @@ export default function Participate({ onOpenRegistration }) {
             <em className="serif">YOUR MOVE.</em>
           </h2>
           <p className="participate__copy" data-reveal style={{ '--reveal-delay': '100ms' }}>
-            C³ is designed for students across ALTA campuses. Final eligibility, team rules,
-            and the participation format will be published with registration details.
+            C³ is designed for students across ALTA campuses. Registration is open; event
+            dates, venue, final eligibility and team rules are still being confirmed.
           </p>
 
           <div className="participate__status" data-reveal style={{ '--reveal-delay': '160ms' }}>
             <span className="status-dot" aria-hidden="true" />
-            <span>REGISTRATION / NOT YET OPEN</span>
+            <span>REGISTRATION / OPEN</span>
           </div>
 
           <div className="participate__actions" data-reveal style={{ '--reveal-delay': '200ms' }}>
-            <Cta onClick={onOpenRegistration} opensDialog>
-              REGISTRATION DETAILS
-            </Cta>
+            <Cta to="/register">REGISTER FOR C³</Cta>
             <a className="text-link" href="#faq">
               READ THE FAQ <span aria-hidden="true">↓</span>
             </a>
           </div>
 
           <p className="participate__note">
-            No sign-up is open on this page. Details will be posted when they are final.
+            Register with a participant account. Event logistics and final rules remain TBA
+            until the organizers publish them.
           </p>
         </div>
 
@@ -47,13 +46,13 @@ export default function Participate({ onOpenRegistration }) {
           data-reveal
           style={{ '--reveal-delay': '120ms' }}
           role="group"
-          aria-label="Participation pass — final details to be announced"
+          aria-label="Participation pass — registration open"
         >
           <div className="entry-pass__head">
             <span>C³ / ENTRY PASS</span>
             <span className="entry-pass__state">
               <span className="status-dot" aria-hidden="true" />
-              NOT YET ISSUED
+              REGISTRATION OPEN
             </span>
           </div>
 
@@ -71,7 +70,7 @@ export default function Participate({ onOpenRegistration }) {
             <div className="entry-pass__stub">
               <span>PASS NO.</span>
               <strong>—</strong>
-              <span>ISSUED WHEN REGISTRATION OPENS</span>
+              <span>ISSUED AFTER REGISTRATION</span>
             </div>
           </div>
 
@@ -86,8 +85,8 @@ export default function Participate({ onOpenRegistration }) {
 
           <div className="entry-pass__foot">
             <span>FINAL DETAILS SUBJECT TO ORGANIZER CONFIRMATION.</span>
-            <Link to="/announcements">
-              FOLLOW THE DISPATCHES <span aria-hidden="true">↗</span>
+            <Link to="/register">
+              OPEN THE REGISTRATION DESK <span aria-hidden="true">↗</span>
             </Link>
           </div>
         </div>

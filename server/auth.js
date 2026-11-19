@@ -76,6 +76,31 @@ export function verifyToken(token) {
 }
 
 /**
+ * Authentication middleware for participant operations.
+ * Expects `Authorization: Bearer <token>`.
+ */
+export function requireAuth(req, res, next) {
+  const header = req.get('authorization') || ''
+  const [scheme, token] = header.split(' ')
+
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHORIZED', message: 'A valid session token is required.' },
+    })
+  }
+
+  const claims = verifyToken(token)
+  if (!claims) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHORIZED', message: 'The session is invalid or has expired.' },
+    })
+  }
+
+  req.user = claims
+  return next()
+}
+
+/**
  * Authorization middleware for organizer-only operations.
  * Expects `Authorization: Bearer <token>`.
  */

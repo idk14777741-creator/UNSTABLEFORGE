@@ -19,10 +19,12 @@ import AnnouncementsPage from './pages/AnnouncementsPage'
 import AnnouncementDetail from './pages/AnnouncementDetail'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
+import RegisterPage from './pages/RegisterPage'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AdminAnnouncements from './pages/admin/AdminAnnouncements'
 import AdminEditor from './pages/admin/AdminEditor'
+import AdminRegistrations from './pages/admin/AdminRegistrations'
 import { Link, navigate, useRoute } from './lib/router'
 import { roleHome, safeNext, useAuth } from './context/AuthContext'
 import { useReveal } from './hooks/useReveal'
@@ -85,6 +87,20 @@ function GuestOnly({ children }) {
   return children
 }
 
+function RequireAuth({ children }) {
+  const { status } = useAuth()
+  const { pathname, search } = useRoute()
+
+  if (status === 'checking') return <RouteLoader />
+
+  if (status !== 'authenticated') {
+    const target = `${pathname}${search}`
+    return <Redirect to={`/login?next=${encodeURIComponent(target)}`} />
+  }
+
+  return children
+}
+
 function RequireOrganizer({ children }) {
   const { status, isOrganizer, user } = useAuth()
   const { pathname, search } = useRoute()
@@ -119,10 +135,12 @@ export default function App() {
   const isAnnouncements = pathname === '/announcements'
   const isLogin = pathname === '/login'
   const isSignup = pathname === '/signup'
+  const isRegister = pathname === '/register'
   const isUnauthorized = pathname === '/unauthorized'
   const isAdminHome = pathname === '/admin'
   const isAdminList = pathname === '/admin/announcements'
   const isAdminNew = pathname === '/admin/announcements/new'
+  const isAdminRegistrations = pathname === '/admin/registrations'
   const isAuthPage = isLogin || isSignup
   const isKnownRoute =
     isHome ||
@@ -130,10 +148,12 @@ export default function App() {
     Boolean(detailMatch) ||
     isLogin ||
     isSignup ||
+    isRegister ||
     isUnauthorized ||
     isAdminHome ||
     isAdminList ||
     isAdminNew ||
+    isAdminRegistrations ||
     Boolean(editorMatch)
 
   return (
@@ -178,6 +198,12 @@ export default function App() {
         </GuestOnly>
       )}
 
+      {isRegister && (
+        <RequireAuth>
+          <RegisterPage />
+        </RequireAuth>
+      )}
+
       {isUnauthorized && <UnauthorizedPage />}
 
       {isAdminHome && (
@@ -195,6 +221,12 @@ export default function App() {
       {isAdminNew && (
         <RequireOrganizer>
           <AdminEditor />
+        </RequireOrganizer>
+      )}
+
+      {isAdminRegistrations && (
+        <RequireOrganizer>
+          <AdminRegistrations />
         </RequireOrganizer>
       )}
 

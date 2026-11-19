@@ -48,14 +48,14 @@ export default function Hero({ onOpenRegistration }) {
               <Cta href="#idea" variant="solid">
                 EXPLORE THE EVENT
               </Cta>
-              <Cta variant="ghost" onClick={onOpenRegistration} opensDialog>
-                REGISTRATION DETAILS
+              <Cta variant="ghost" to="/register">
+                REGISTER FOR C³
               </Cta>
             </div>
 
             <p className="hero__status">
               <span className="status-dot" aria-hidden="true" />
-              <span>REGISTRATION NOT OPEN YET</span>
+              <span>REGISTRATION IS OPEN</span>
               <span className="hero__status-sep" aria-hidden="true">
                 /
               </span>

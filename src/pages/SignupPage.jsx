@@ -77,8 +77,8 @@ export default function SignupPage() {
           JOIN THE <em className="serif">FORGE.</em>
         </h1>
         <p className="auth-lede">
-          Create a participant account with an email and password. No event details are
-          invented by signing up — registration for C³ is still separate and not yet open.
+          Create a participant account with an email and password. Registration for C³ is open;
+          you can add your event details from the registration desk after signing in.
         </p>
       </div>
 

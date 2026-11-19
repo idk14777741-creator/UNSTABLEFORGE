@@ -13,7 +13,14 @@ if (!process.env.AUTH_SECRET || process.env.AUTH_SECRET.length < 16) {
 }
 
 const { db, event } = await import('./db.js')
-const { signToken, verifyToken, verifyPassword, hashPassword, requireOrganizer } = await import('./auth.js')
+const {
+  signToken,
+  verifyToken,
+  verifyPassword,
+  hashPassword,
+  requireOrganizer,
+  requireAuth,
+} = await import('./auth.js')
 
 const CATEGORIES = ['Important', 'Registration', 'Schedule', 'Competition', 'General']
 const CATEGORY_LOOKUP = new Map(CATEGORIES.map((category) => [category.toLowerCase(), category]))
@@ -211,6 +218,53 @@ function findAnnouncementById(id) {
     .get(id)
 }
 
+function registrationReference(id) {
+  return `C3-REG-${String(id).padStart(4, '0')}`
+}
+
+function serializeRegistration(row, { includeEmail = false } = {}) {
+  const payload = {
+    id: row.id,
+    reference: registrationReference(row.id),
+    eventId: row.event_id,
+    eventSlug: row.event_slug,
+    eventName: row.event_name,
+    fullName: row.full_name,
+    campus: row.campus,
+    status: 'registered',
+    createdAt: row.created_at,
+  }
+  if (includeEmail) payload.email = row.email
+  return payload
+}
+
+function validateRegistration(input) {
+  const errors = {}
+  const fullName = typeof input.fullName === 'string' ? input.fullName.trim().replace(/\s+/g, ' ') : ''
+  const campus = typeof input.campus === 'string' ? input.campus.trim().replace(/\s+/g, ' ') : ''
+
+  if (fullName.length < 2 || fullName.length > 120) {
+    errors.fullName = 'Full name must be between 2 and 120 characters.'
+  }
+  if (campus.length < 2 || campus.length > 120) {
+    errors.campus = 'Campus must be between 2 and 120 characters.'
+  }
+
+  return { data: { fullName, campus }, errors }
+}
+
+function findRegistrationByUser(userId) {
+  return db
+    .prepare(
+      `SELECT r.*, e.slug AS event_slug, e.name AS event_name, u.email
+       FROM registrations r
+       JOIN events e ON e.id = r.event_id
+       JOIN users u ON u.id = r.user_id
+       WHERE r.user_id = ? AND r.event_id = ?`,
+    )
+    .get(userId, event.id)
+}
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function validateSignup(input) {
@@ -338,6 +392,59 @@ app.get('/api/announcements/:identifier', (req, res) => {
   }
 
   return res.json({ data: serialize(row, { includeContent: true }) })
+})
+
+// ------------------------------------------------------- participant API
+
+app.get('/api/registrations/me', requireAuth, (req, res) => {
+  const row = findRegistrationByUser(Number(req.user.sub))
+  return res.json({ data: row ? serializeRegistration(row, { includeEmail: true }) : null })
+})
+
+app.post('/api/registrations', requireAuth, (req, res) => {
+  const { data, errors } = validateRegistration(req.body || {})
+  if (Object.keys(errors).length) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: 'Check the highlighted fields.', fields: errors },
+    })
+  }
+
+  const existing = findRegistrationByUser(Number(req.user.sub))
+  if (existing) {
+    return res.status(409).json({
+      error: {
+        code: 'REGISTRATION_EXISTS',
+        message: 'You are already registered for C³.',
+      },
+    })
+  }
+
+  try {
+    const timestamp = new Date().toISOString()
+    const result = db
+      .prepare(
+        `INSERT INTO registrations (event_id, user_id, full_name, campus, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(event.id, Number(req.user.sub), data.fullName, data.campus, timestamp)
+
+    return res.status(201).json({
+      data: serializeRegistration(findRegistrationByUser(Number(req.user.sub)), {
+        includeEmail: true,
+      }),
+      id: Number(result.lastInsertRowid),
+    })
+  } catch (error) {
+    if (String(error?.code).startsWith('SQLITE_CONSTRAINT')) {
+      return res.status(409).json({
+        error: {
+          code: 'REGISTRATION_EXISTS',
+          message: 'You are already registered for C³.',
+        },
+      })
+    }
+    throw error
+  }
 })
 
 // ------------------------------------------------------------ organizer API
@@ -641,6 +748,79 @@ app.delete('/api/announcements/:id', requireOrganizer, (req, res) => {
   }
 
   res.status(204).end()
+})
+
+app.get('/api/admin/registrations', requireOrganizer, (req, res) => {
+  const { page, limit, errors } = pagination(req.query)
+  const search = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  if (search.length > 100) errors.q = 'q must be 100 characters or fewer.'
+
+  const campus = typeof req.query.campus === 'string' ? req.query.campus.trim() : ''
+  if (campus.length > 120) errors.campus = 'campus must be 120 characters or fewer.'
+
+  if (Object.keys(errors).length) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: 'Invalid query parameters.', fields: errors },
+    })
+  }
+
+  const where = ['r.event_id = ?']
+  const params = [event.id]
+  if (campus) {
+    where.push('r.campus = ? COLLATE NOCASE')
+    params.push(campus)
+  }
+  if (search) {
+    const escaped = search.replace(/[\\%_]/g, (character) => `\\${character}`)
+    where.push(
+      "(r.full_name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\' OR r.campus LIKE ? ESCAPE '\\')",
+    )
+    params.push(`%${escaped}%`, `%${escaped}%`, `%${escaped}%`)
+  }
+
+  const whereSql = where.join(' AND ')
+  const total = db
+    .prepare(
+      `SELECT COUNT(*) AS count FROM registrations r JOIN users u ON u.id = r.user_id WHERE ${whereSql}`,
+    )
+    .get(...params).count
+  const totalPages = Math.max(1, Math.ceil(total / limit))
+  const offset = (page - 1) * limit
+
+  const rows = db
+    .prepare(
+      `SELECT r.*, e.slug AS event_slug, e.name AS event_name, u.email
+       FROM registrations r
+       JOIN events e ON e.id = r.event_id
+       JOIN users u ON u.id = r.user_id
+       WHERE ${whereSql}
+       ORDER BY r.created_at DESC, r.id DESC
+       LIMIT ? OFFSET ?`,
+    )
+    .all(...params, limit, offset)
+
+  const campuses = db
+    .prepare(
+      'SELECT DISTINCT campus FROM registrations WHERE event_id = ? ORDER BY campus COLLATE NOCASE',
+    )
+    .all(event.id)
+    .map((row) => row.campus)
+  const totalAll = db
+    .prepare('SELECT COUNT(*) AS count FROM registrations WHERE event_id = ?')
+    .get(event.id).count
+
+  return res.json({
+    data: rows.map((row) => serializeRegistration(row, { includeEmail: true })),
+    meta: {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasMore: page < totalPages,
+      campuses,
+      summary: { total: totalAll, campuses: campuses.length },
+    },
+  })
 })
 
 // ------------------------------------------------------------ static + errors

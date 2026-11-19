@@ -8,7 +8,9 @@ function Stat({ label, value, note }) {
   return (
     <article className="admin-stat">
       <span className="admin-stat__label">{label}</span>
-      <strong className="admin-stat__value">{String(value).padStart(2, '0')}</strong>
+      <strong className="admin-stat__value">
+        {typeof value === 'number' ? String(value).padStart(2, '0') : value}
+      </strong>
       <span className="admin-stat__note">{note}</span>
     </article>
   )
@@ -17,6 +19,7 @@ function Stat({ label, value, note }) {
 export default function AdminDashboard() {
   const { user, request } = useAuth()
   const [state, setState] = useState({ status: 'loading', items: [], summary: null, error: null })
+  const [registrationCount, setRegistrationCount] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
@@ -45,6 +48,20 @@ export default function AdminDashboard() {
         setState({ status: 'error', items: [], summary: null, error: error.message })
       })
 
+    return () => {
+      active = false
+    }
+  }, [request, reloadKey])
+
+  useEffect(() => {
+    let active = true
+    request('/api/admin/registrations?limit=1')
+      .then((body) => {
+        if (active) setRegistrationCount(body.meta?.summary?.total ?? 0)
+      })
+      .catch(() => {
+        if (active) setRegistrationCount(null)
+      })
     return () => {
       active = false
     }
@@ -115,15 +132,23 @@ export default function AdminDashboard() {
             </div>
           ) : (
             <>
-              <div className="admin-stats">
+              <div className="admin-stats admin-stats--four">
                 <Stat label="TOTAL DISPATCHES" value={summary.total} note="All statuses" />
                 <Stat label="PUBLIC" value={summary.published} note="Visible on the event site" />
                 <Stat label="DRAFTS" value={summary.drafts} note="Private until published" />
+                <Stat
+                  label="REGISTRATIONS"
+                  value={registrationCount ?? '—'}
+                  note="Participants in the record"
+                />
               </div>
 
               <div className="admin-actions">
                 <Link className="ann-action" to="/admin/announcements">
                   MANAGE UPDATES
+                </Link>
+                <Link className="ann-action" to="/admin/registrations">
+                  VIEW REGISTRATIONS
                 </Link>
                 <Link className="ann-action ann-action--ghost" to="/admin/announcements/new">
                   NEW DISPATCH

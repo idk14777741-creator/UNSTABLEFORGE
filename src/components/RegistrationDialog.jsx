@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { registration, brand } from '../data/site'
-import Cta from './Cta'
 import Mark from './Mark'
+import { Link } from '../lib/router'
 import { lockScroll, releaseScroll } from '../lib/scrollLock'
 
 export default function RegistrationDialog({ open, onClose }) {
@@ -53,7 +53,7 @@ export default function RegistrationDialog({ open, onClose }) {
         <div className="dialog__top">
           <span className="dialog__meta">
             <span className="status-dot" aria-hidden="true" />
-            C³ / REGISTRATION STATUS
+            C³ / REGISTRATION IS OPEN
           </span>
           <button
             className="dialog__close"
@@ -70,11 +70,11 @@ export default function RegistrationDialog({ open, onClose }) {
         </div>
 
         <div className="dialog__body">
-          <p className="dialog__eyebrow">STATUS / NOT OPEN</p>
+          <p className="dialog__eyebrow">STATUS / OPEN</p>
           <h2 className="dialog__title" id="registration-title">
-            DETAILS ARE{' '}
+            THE DESK IS{' '}
             <br />
-            <em className="serif">COMING.</em>
+            <em className="serif">OPEN.</em>
           </h2>
           <p className="dialog__lede" id="registration-note">
             {registration.note}
@@ -89,14 +89,18 @@ export default function RegistrationDialog({ open, onClose }) {
             ))}
           </dl>
 
-          <p className="dialog__note">NO DETAILS ARE BEING COLLECTED YET.</p>
+          <p className="dialog__note">REGISTRATION COLLECTS YOUR FULL NAME, ACCOUNT EMAIL AND CAMPUS.</p>
 
           <div className="dialog__actions">
-            <Cta variant="light" onClick={close}>
+            <Link className="cta cta--light dialog__register" to="/register" onClick={close}>
+              <span>OPEN THE REGISTRATION DESK</span>
+              <span aria-hidden="true">↗</span>
+            </Link>
+            <button className="dialog__back" type="button" onClick={close}>
               BACK TO THE EVENT
-            </Cta>
-            <span className="dialog__event">{brand.event}</span>
+            </button>
           </div>
+          <p className="dialog__event">{brand.event}</p>
         </div>
 
         <Mark className="dialog__mark" />

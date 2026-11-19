@@ -17,8 +17,8 @@ export default function Journey() {
             <em className="serif">ONE BUILD.</em>
           </h2>
           <p className="journey__intro" data-reveal style={{ '--reveal-delay': '100ms' }}>
-            The sequence is set. The dates are not. Every milestone will be confirmed before
-            registration opens.
+            The sequence is set. The dates are not. Registration is open now; event logistics
+            will be confirmed as the timeline is locked.
           </p>
           <div className="journey__legend">
             <span className="status-dot" aria-hidden="true" />

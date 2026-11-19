@@ -125,7 +125,7 @@ export const faqs = [
   {
     question: 'WHEN DOES REGISTRATION CLOSE?',
     answer:
-      'The registration window is not open yet. The closing date will be announced alongside the full event timeline.',
+      'Registration is open on this site. A closing date has not been confirmed yet and will be published alongside the full event timeline.',
   },
 ]
 
@@ -136,11 +136,11 @@ export const socials = [
 ]
 
 export const registration = {
-  status: 'REGISTRATION IS NOT OPEN YET',
-  note: 'Dates, eligibility, team rules, and the official registration link will be announced here.',
+  status: 'REGISTRATION IS OPEN',
+  note: 'Register through the event site. Event dates, venue, format, eligibility criteria and team rules are still being confirmed and remain marked TBA.',
   fields: [
-    { label: 'REGISTRATION WINDOW', value: 'TBA' },
-    { label: 'FORMAT', value: 'TBA' },
-    { label: 'TEAM SIZE', value: 'TBA' },
+    { label: 'REGISTRATION', value: 'OPEN' },
+    { label: 'EVENT DETAILS', value: 'TBA' },
+    { label: 'ACCOUNT', value: 'REQUIRED' },
   ],
 }

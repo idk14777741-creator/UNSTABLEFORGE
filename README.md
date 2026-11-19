@@ -64,12 +64,14 @@ The current build is the Unstable Forge event site for C³, with a client-side h
 | `/` | Public | Landing page for Unstable Forge and C³ |
 | `/login` | Guests | Sign in with an existing account |
 | `/signup` | Guests | Create a participant account |
+| `/register` | Signed-in participants | C³ registration desk and saved registration status |
 | `/announcements` | Public | Searchable, filtered announcement archive |
 | `/announcements/:slug` | Public | Announcement detail |
 | `/admin` | Organizer / admin | Control room dashboard |
 | `/admin/announcements` | Organizer / admin | Announcement management, including drafts |
 | `/admin/announcements/new` | Organizer / admin | Create a dispatch |
 | `/admin/announcements/:id/edit` | Organizer / admin | Edit an existing dispatch |
+| `/admin/registrations` | Organizer / admin | Searchable participant registration record |
 | `/unauthorized` | Signed-in non-organizers | Clear 403 state |
 | Any other path | Public | Custom 404 page |
 
@@ -111,6 +113,19 @@ Previous/next links on the detail page are intentionally not fabricated. The exi
 - **Publish/unpublish** uses `PATCH /api/announcements/:id`. The server controls public visibility; a successful change immediately affects the public archive, detail route and homepage wire. Each action reports success or failure in the manager.
 - **Delete** never fires from the row button. A confirmation dialog identifies the dispatch, shows its slug and status, traps keyboard focus, supports Escape to cancel, and only sends the real `DELETE /api/announcements/:id` after explicit confirmation. Deletion is irreversible.
 - Empty, loading, filtered-empty and network-error states are provided for the record. Drafts remain visible only through the authenticated organizer API.
+
+### C³ Participant Registration (Day 11)
+
+`/register` is the real participant entry desk, connected to the authenticated account and the SQLite event record.
+
+- Signed-out visitors are sent through the existing login flow and returned to `/register` after sign-in.
+- The form collects only the full name and campus needed for the event record. The account email is read-only and the server derives ownership from the session token; a client-supplied `userId` is ignored.
+- Registration requires 2–120 characters for both fields, validates on the client and server, and returns field-level messages. A database `UNIQUE (user_id, event_id)` constraint and an explicit conflict response reject duplicate registration with `409 REGISTRATION_EXISTS`.
+- A successful registration returns a saved record with a display reference (`C3-REG-####`), name, campus, account email, event and timestamp. Reloading the desk fetches `/api/registrations/me`, so the confirmation pass survives refresh.
+- The participant API exposes only `/api/registrations/me`; there is no endpoint for reading another participant's record.
+- `/admin/registrations` is the organizer-only entry record. It provides totals, campus count, search by name/email/campus, campus filtering, pagination and registration timestamps from the live API.
+- `requireAuth` protects participant writes and `requireOrganizer` protects the organizer record server-side. A participant calling the organizer endpoint receives `403`.
+- The homepage, participation copy, journey, registration dialog and navigation now point to the open registration desk while preserving every event detail still marked TBA. No capacity, deadline, payment, team or approval workflow was invented.
 
 ### Visual Evolution (Day 10)
 
@@ -182,7 +197,7 @@ With the API running:
 npm run test:api
 ```
 
-The suite covers public announcements, newest-first ordering, organizer CRUD, signup validation, duplicate accounts, participant login, role-based `403`s, draft visibility, admin filtering and invalid sessions. Day 10 finished with **59 passing checks**; the management milestone reuses these existing authorization and CRUD APIs rather than adding a parallel backend.
+The suite covers public announcements, newest-first ordering, organizer CRUD, signup validation, duplicate accounts, participant login, role-based `403`s, draft visibility, admin filtering, invalid sessions, registration validation, registration persistence, duplicate rejection and organizer registration search/filtering. Day 11 finished with **72 passing checks**.
 
 ## What I Built and What I Understood
 
@@ -204,7 +219,7 @@ Day 9 connected the public experience to the live event record: the homepage now
 
 Day 10 made the organizer workflow safe enough to use rather than simply present: the editorial desk writes to the same SQLite record as the public site, distinguishes publication from drafting, confirms destructive actions, previews the dispatch as it is written, and keeps validation both client- and server-side. The visual work also clarified a principle I want to carry forward: motion and atmosphere should explain the event, while practical information should remain direct and easy to find.
 
-Manual browser checks covered login success/failure, signup and duplicate handling, refresh persistence, protected redirects and return paths, participant vs organizer access, logout, expired sessions, direct nested-route loads and mobile layouts. Day 10 checks covered the live management table, create, edit, publish, unpublish, delete confirmation and cancellation, API failure recovery, the live preview, draft filtering, public visibility after each change, chapter HUD activation, responsive desk and pass layouts. The full API suite passes 59/59.
+Manual browser checks covered login success/failure, signup and duplicate handling, refresh persistence, protected redirects and return paths, participant vs organizer access, logout, expired sessions, direct nested-route loads and mobile layouts. Day 10 checks covered the live management table, create, edit, publish, unpublish, delete confirmation and cancellation, API failure recovery, the live preview, draft filtering, public visibility after each change, chapter HUD activation, responsive desk and pass layouts. Day 11 checks covered the signed-out redirect to login, a real participant registration, the confirmation pass, refresh persistence, duplicate rejection through the API, and the organizer entry record with live totals and detail rows. The full API suite passes 72/72 and the production build succeeds.
 
 Known limitations: the existing API is bearer-token based, so the session is kept in `localStorage`; an XSS vulnerability could expose a token, and a future iteration should move to HttpOnly, SameSite cookies with CSRF protection. Detail-page previous/next navigation is not implemented because the announcement API does not expose adjacency metadata. Announcement content remains plain text (blank lines become paragraphs) because that is the existing API contract; rich text, media uploads, scheduled publishing and revision history are not implemented.
 

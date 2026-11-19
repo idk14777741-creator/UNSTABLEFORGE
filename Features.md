@@ -389,6 +389,40 @@ Day 10 completed the organizer announcement workflow and evolved the public expe
 
 Announcement content remains plain text with blank-line paragraphs, matching the existing API. Rich text, media uploads, scheduled publishing and revision history are not implemented. The detail page still has no previous/next links because the API does not expose adjacency metadata. Admin search, status and page selection reset when returning from the editor.
 
+### Day 11 — C³ Participant Registration
+
+Day 11 added the real participant entry flow on the existing account, API and SQLite foundation. No second authentication system or parallel event store was introduced.
+
+#### Registration Experience
+
+- `/register` is a dedicated registration desk inside the existing visual system, with an editorial brief, entry steps, live event facts and a confirmation pass.
+- Signed-out users are redirected through `/login?next=/register` and returned to the desk after authentication.
+- The form collects full name, campus and the read-only account email. No payment, team, phone, approval or waitlist data is invented.
+- Loading, ready, submitting, validation, duplicate, success, network-error and retry states are implemented. Field errors focus the first invalid field.
+- The confirmation shows the saved registration reference, participant name, campus, account email, status, event and filing date. Reloading `/register` restores this record from the API.
+
+#### Database and API
+
+- New `registrations` table: `id`, `event_id`, `user_id`, `full_name`, `campus`, `created_at`, with `UNIQUE (user_id, event_id)` and foreign keys to events and users.
+- `GET /api/registrations/me` returns the signed-in participant's registration or `null`.
+- `POST /api/registrations` requires authentication, validates full name and campus, ignores any client-supplied user id, and returns `201` with a display reference such as `C3-REG-0001`.
+- Duplicate registration is rejected with `409 REGISTRATION_EXISTS`; the database constraint is the final guard.
+- There is deliberately no cross-participant registration endpoint. Another participant's record cannot be fetched by id.
+- `GET /api/admin/registrations` is organizer-only, supports `q`, `campus`, `page` and `limit`, and returns participant name/email/campus plus totals and campus options. `requireOrganizer` enforces access on the server.
+
+#### Organizer Desk
+
+- `/admin/registrations` shows live totals, campus count, search, campus filter, pagination, timestamps and status for every saved registration.
+- Loading, empty, filtered-empty, error and retry states are designed; participant emails appear only in this authenticated organizer view.
+
+#### Verification
+
+`npm run test:api` passes **72/72** checks. New coverage includes authentication requirements, registration validation, successful registration, account-bound ownership despite an arbitrary `userId`, duplicate `409`, persistence through `/me`, absence of a cross-participant endpoint, participant `403` on the organizer record, and organizer search/campus filtering. `npm run build` succeeds. Browser checks confirmed the signed-out redirect, real registration, confirmation pass, refresh persistence and the organizer record with live rows.
+
+#### Known Limitations
+
+Registration status is a single confirmed `registered` state because no approval, capacity, payment or waitlist rules have been confirmed. The display reference is derived from the database id for human use; it is not a separate ticket or QR credential. Event logistics remain TBA.
+
 This section is updated as features are actually implemented and concepts are understood.
 
 ---

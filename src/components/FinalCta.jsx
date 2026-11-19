@@ -45,8 +45,8 @@ export default function FinalCta({ onOpenRegistration }) {
           </div>
 
           <div className="final__actions" data-reveal style={{ '--reveal-delay': '140ms' }}>
-            <Cta variant="light" onClick={onOpenRegistration} opensDialog>
-              REGISTRATION DETAILS
+            <Cta variant="light" to="/register">
+              REGISTER FOR C³
             </Cta>
             <a className="text-link text-link--light" href="#journey">
               REVIEW THE TIMELINE <span aria-hidden="true">↗</span>
@@ -57,10 +57,10 @@ export default function FinalCta({ onOpenRegistration }) {
         <div className="final__foot">
           <p className="final__status">
             <span className="status-dot" aria-hidden="true" />
-            REGISTRATION IS NOT OPEN YET
+            REGISTRATION IS OPEN
           </p>
           <p className="final__footnote">
-            DATES, ELIGIBILITY, AND THE OFFICIAL SIGN-UP ROUTE WILL BE ANNOUNCED HERE.
+            EVENT DATES, VENUE, FORMAT AND FINAL ELIGIBILITY REMAIN TBA.
           </p>
         </div>
       </div>

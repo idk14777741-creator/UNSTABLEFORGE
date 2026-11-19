@@ -49,6 +49,22 @@ db.exec(`
     ON announcements (event_id);
   CREATE INDEX IF NOT EXISTS idx_announcements_category
     ON announcements (category);
+
+  CREATE TABLE IF NOT EXISTS registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    full_name TEXT NOT NULL,
+    campus TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (user_id, event_id),
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_registrations_event
+    ON registrations (event_id, created_at DESC);
+
 `)
 
 const now = () => new Date().toISOString()
@@ -305,3 +321,32 @@ function seedContent() {
 }
 
 seedContent()
+
+function ensureRegistrationAnnouncement() {
+  const slug = 'registration-is-now-open'
+  if (db.prepare('SELECT id FROM announcements WHERE slug = ?').get(slug)) return
+
+  const timestamp = now()
+  db.prepare(
+    `INSERT INTO announcements
+      (event_id, title, slug, content, category, published_at, is_published, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    event.id,
+    'Registration is now open',
+    slug,
+    `The C³ registration desk is open. Participants can create an account and register through the event site.
+
+Registration currently collects your full name, account email, and campus. Event dates, venue, format, eligibility criteria, and team rules are still being confirmed and remain marked as TBA across the site.
+
+Registering records your participation details and gives you a registration reference. It does not confirm event logistics that have not been announced.`,
+    'Registration',
+    timestamp,
+    1,
+    timestamp,
+    timestamp,
+  )
+  console.log('[db] Seeded the registration-open announcement.')
+}
+
+ensureRegistrationAnnouncement()
