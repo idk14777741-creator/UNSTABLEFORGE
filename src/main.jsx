@@ -8,6 +8,7 @@ import './auth.css'
 import './day10.css'
 import './day11.css'
 import './day12.css'
+import './cinematic.css'
 
 document.documentElement.classList.remove('no-js')
 document.documentElement.classList.add('js')

@@ -61,7 +61,8 @@ The current build is the Unstable Forge event site for C³, with a client-side h
 
 | Route | Access | Purpose |
 |---|---|---|
-| `/` | Public | Landing page for Unstable Forge and C³ |
+| `/` | Public | Scroll-driven cinematic opening: the forge, the C³ reveal, the constellation and the invitation |
+| `/brief` | Public | The editorial brief — the former homepage sections (idea, challenge, tracks, journey, stakes, FAQ) |
 | `/login` | Guests | Sign in with an existing account |
 | `/signup` | Guests | Create a participant account |
 | `/register` | Signed-in participants | C³ registration desk and saved registration status |
@@ -145,6 +146,28 @@ The showcase is a real, API-backed exhibition. It begins empty rather than seedi
 - `/admin/projects` is the organizer moderation wall. It exposes real summary counts, search, status/category filters, pagination, expandable submission detail and owner email. Organizers publish, reject/unpublish and return records to review through `PATCH /api/admin/projects/:id`; every action is authorized server-side.
 - Publication is always manual. No participant submission appears publicly until an organizer publishes it, and rejected or unpublished projects immediately return `404` on public routes.
 
+### Cinematic Homepage — The Forge Sequence
+
+The public homepage is now a single, scroll-controlled film in eight scenes rather than a stack of marketing sections. It sits on top of the existing architecture: no API, database, auth or route behaviour was changed.
+
+- **Scene 01 — The Spark.** A dark industrial hall, a burning furnace, embers, smoke and a partly visible anvil. The only text is “Before something exists, someone imagines it.”
+- **Scene 02 — The Raw Idea.** The camera moves in on a glowing, imperfect billet resting on the anvil while the hydraulic hammer frames the shot.
+- **Scene 03 — The Forging.** Three scroll-driven strikes: the ram rises and falls, sparks and shockwaves fire, the camera takes a brief impulse, the ingot flattens and heats, then breaks into three fragments.
+- **Scene 04 — The Revelation.** The fragments rise and cool into the C³ mark — three nested forged C's on a mounted plate — while `C × C × C`, `C³`, `CRESCENT CODE CLASH` and `CODE. COMPETE. CONQUER.` are revealed in order.
+- **Scene 05 — The Portal.** The mark becomes a ringed passage; the camera passes through it and the forge gives way to a particle field.
+- **Scene 06 — The Constellation.** ~1,500 warm particles (520 on mobile) settle into a spatial constellation with fine connecting threads and pointer parallax.
+- **Scene 07 — The Possibilities.** Every challenge domain is a real `<button>` anchored to its own light in the 3D field. Hover, focus, tap or click highlights the node and its paths and fills an editorial side panel. Scroll illuminates the field in bands. The panel states plainly that these are challenge domains, not official problem statements.
+- **Scene 08 — The Invitation.** The field contracts to a single ember and the closing frame offers two real destinations: `ENTER C³` → `/register` (existing auth guard intact) and `EXPLORE CREATIONS` → `/projects`.
+
+Implementation notes:
+
+- One dependency was added: **`three`**. Both WebGL worlds are loaded with `import()` only on the homepage, so every other route keeps the lighter bundle.
+- Every animation is a pure function of one normalised scroll value (plus slow ambient time), which is why reverse scrolling rewinds the film exactly instead of replaying a timeline.
+- `prefers-reduced-motion` and browsers without WebGL get a designed static version of the same story, including the domain list, rather than a broken canvas.
+- The experience is silent by design. Force is communicated with camera impulse, shockwaves, spark bursts and light changes only.
+- Mobile uses its own framing (further camera, fewer particles, shorter pinned sections), a bottom editorial panel and larger touch targets.
+- All earlier homepage content moved to `/brief`; navigation, footer and every existing route now point there instead of to removed anchors.
+
 ### Visual Evolution (Day 10)
 
 The public and organizer experiences now share a chapter-based editorial system rather than generic dashboard patterns.
@@ -160,6 +183,7 @@ The public and organizer experiences now share a chapter-based editorial system 
 | Layer | Technology |
 |---|---|
 | Frontend | React 19 + Vite 6 |
+| Cinematic layer | three.js (WebGL), lazy-loaded on the homepage only |
 | Styling | Custom CSS design system |
 | Routing | Lightweight history router in `src/lib/router.jsx` |
 | Backend | Node.js + Express |

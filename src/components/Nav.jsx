@@ -15,12 +15,13 @@ export default function Nav({ onOpenRegistration }) {
   const isAdmin = pathname.startsWith('/admin')
   const isRegistration = pathname === '/register'
   const isProjects = pathname.startsWith('/projects')
-  const SectionTag = isHome ? 'a' : Link
-  const BrandTag = isHome ? 'a' : Link
-  const sectionProps = (link) => (isHome ? { href: link.href } : { to: `/${link.href}` })
-  const brandProps = isHome ? { href: '#top' } : { to: '/' }
+  const isBrief = pathname === '/brief'
+  const SectionTag = Link
+  const BrandTag = Link
+  const sectionProps = (link) => ({ to: link.href })
+  const brandProps = { to: '/' }
   const [scrolled, setScrolled] = useState(false)
-  const overDark = (isUpdates || isAdmin || isRegistration || isProjects) && !scrolled
+  const overDark = (isUpdates || isAdmin || isRegistration || isProjects || isBrief) && !scrolled
   const [active, setActive] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const menuButtonRef = useRef(null)
@@ -256,7 +257,7 @@ export default function Nav({ onOpenRegistration }) {
   return (
     <>
       <header
-        className={`nav ${scrolled ? 'is-scrolled' : ''} ${overDark ? 'nav--over-dark' : ''}`}
+        className={`nav ${scrolled ? 'is-scrolled' : ''} ${overDark ? 'nav--over-dark' : ''} ${isHome ? 'nav--cinematic' : ''}`}
       >
         <BrandTag className="nav__brand" {...brandProps} aria-label="Unstable Forge, back to top">
           <Mark className="nav__mark" />

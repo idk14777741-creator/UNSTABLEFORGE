@@ -1,18 +1,9 @@
 import { useEffect, useState } from 'react'
 import Nav from './components/Nav'
 import ScrollProgress from './components/ScrollProgress'
-import ChapterHud from './components/ChapterHud'
-import Hero from './components/Hero'
-import Idea from './components/Idea'
-import Challenge from './components/Challenge'
-import Tracks from './components/Tracks'
-import Journey from './components/Journey'
-import Stakes from './components/Stakes'
-import LatestFromForge from './components/LatestFromForge'
-import Participate from './components/Participate'
-import Faq from './components/Faq'
-import FinalCta from './components/FinalCta'
 import Footer from './components/Footer'
+import ForgedExperience from './cinematic/ForgedExperience'
+import BriefPage from './pages/BriefPage'
 import RegistrationDialog from './components/RegistrationDialog'
 import RouteLoader from './components/RouteLoader'
 import AnnouncementsPage from './pages/AnnouncementsPage'
@@ -139,6 +130,7 @@ export default function App() {
   const projectDetailMatch = pathname.match(/^\/projects\/(?!mine$|submit$)([^/]+)$/)
   const projectEditMatch = pathname.match(/^\/projects\/(\d+)\/edit$/)
   const isHome = pathname === '/'
+  const isBrief = pathname === '/brief'
   const isAnnouncements = pathname === '/announcements'
   const isLogin = pathname === '/login'
   const isSignup = pathname === '/signup'
@@ -155,6 +147,7 @@ export default function App() {
   const isAuthPage = isLogin || isSignup
   const isKnownRoute =
     isHome ||
+    isBrief ||
     isAnnouncements ||
     Boolean(detailMatch) ||
     isLogin ||
@@ -179,25 +172,12 @@ export default function App() {
         SKIP TO CONTENT
       </a>
 
-      {!isAuthPage && <ScrollProgress />}
+      {!isAuthPage && !isHome && <ScrollProgress />}
       {!isAuthPage && <Nav onOpenRegistration={openRegistration} />}
 
-      {isHome && (
-        <main id="main">
-          <Hero onOpenRegistration={openRegistration} />
-          <Idea />
-          <Challenge />
-          <Tracks />
-          <Journey />
-          <Stakes />
-          <LatestFromForge />
-          <Participate onOpenRegistration={openRegistration} />
-          <Faq />
-          <FinalCta onOpenRegistration={openRegistration} />
-        </main>
-      )}
+      {isHome && <ForgedExperience />}
 
-      {isHome && <ChapterHud />}
+      {isBrief && <BriefPage onOpenRegistration={openRegistration} />}
 
       {isAnnouncements && <AnnouncementsPage />}
 
@@ -283,7 +263,7 @@ export default function App() {
 
       {!isKnownRoute && <NotFound />}
 
-      {!isAuthPage && <Footer />}
+      {!isAuthPage && !isHome && <Footer />}
       {!isAuthPage && (
         <RegistrationDialog open={registrationOpen} onClose={closeRegistration} />
       )}

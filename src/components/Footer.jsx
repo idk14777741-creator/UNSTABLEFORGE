@@ -1,22 +1,20 @@
 import { brand, navLinks, projectsLink, socials, updatesLink } from '../data/site'
 import Mark from './Mark'
-import { Link, useRoute } from '../lib/router'
+import { Link } from '../lib/router'
 
 const footerLinks = [
   ...navLinks,
-  { id: 'stakes', label: 'PRIZE STATUS', href: '#stakes' },
-  { id: 'participate', label: 'PARTICIPATE', href: '#participate' },
+  { id: 'stakes', label: 'PRIZE STATUS', href: '/brief#stakes' },
+  { id: 'participate', label: 'PARTICIPATE', href: '/brief#participate' },
   { id: projectsLink.id, label: 'PROJECT SHOWCASE', href: projectsLink.href },
   { id: updatesLink.id, label: updatesLink.label, href: updatesLink.href },
 ]
 
 export default function Footer() {
-  const { pathname } = useRoute()
-  const isHome = pathname === '/'
-  const SectionTag = isHome ? 'a' : Link
-  const BrandTag = isHome ? 'a' : Link
-  const brandProps = isHome ? { href: '#top' } : { to: '/' }
-  const sectionProps = (href) => (isHome ? { href } : { to: `/${href}` })
+  const SectionTag = Link
+  const BrandTag = Link
+  const brandProps = { to: '/' }
+  const sectionProps = (href) => ({ to: href.startsWith('/') ? href : `/${href}` })
 
   return (
     <footer className="footer">

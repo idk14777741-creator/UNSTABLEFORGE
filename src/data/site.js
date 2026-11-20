@@ -10,11 +10,11 @@ export const brand = {
 }
 
 export const navLinks = [
-  { id: 'idea', label: 'THE IDEA', href: '#idea' },
-  { id: 'challenge', label: 'CHALLENGE', href: '#challenge' },
-  { id: 'tracks', label: 'TRACKS', href: '#tracks' },
-  { id: 'journey', label: 'JOURNEY', href: '#journey' },
-  { id: 'faq', label: 'FAQ', href: '#faq' },
+  { id: 'idea', label: 'THE IDEA', href: '/brief#idea' },
+  { id: 'challenge', label: 'CHALLENGE', href: '/brief#challenge' },
+  { id: 'tracks', label: 'TRACKS', href: '/brief#tracks' },
+  { id: 'journey', label: 'JOURNEY', href: '/brief#journey' },
+  { id: 'faq', label: 'FAQ', href: '/brief#faq' },
 ]
 
 export const projectsLink = {
