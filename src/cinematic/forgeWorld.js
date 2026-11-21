@@ -508,6 +508,27 @@ export function createForgeWorld({ canvas, mobile = false }) {
   hammerCylinder.position.set(0, 2.62, 0)
   hammer.add(hammerCylinder)
 
+  // The rails are bolted to the floor plates rather than standing free.
+  for (const x of [-1.18, 1.18]) {
+    const foot = new THREE.Mesh(track(new THREE.BoxGeometry(0.42, 0.14, 0.92)), materials.darkSteel)
+    foot.position.set(x, -0.98, 0)
+    hammer.add(foot)
+  }
+
+  // The ram rides a piston rod that always reaches the cylinder head above it,
+  // so the head never appears to float between the rails.
+  const pistonRod = new THREE.Mesh(
+    track(new THREE.CylinderGeometry(0.09, 0.09, 1, 14)),
+    materials.steel,
+  )
+  hammer.add(pistonRod)
+
+  const pistonCollar = new THREE.Mesh(
+    track(new THREE.CylinderGeometry(0.16, 0.16, 0.14, 16)),
+    materials.copper,
+  )
+  hammer.add(pistonCollar)
+
   const ram = new THREE.Group()
   hammer.add(ram)
 
@@ -750,35 +771,71 @@ export function createForgeWorld({ canvas, mobile = false }) {
   plateRim.position.z = -0.29
   emblem.add(plateRim)
 
-  // three nested C's, hammered one inside the next — the C³ mark itself
-  const arcSpecs = [
-    { radius: 0.7, tube: 0.085, z: 0.05, material: materials.gold },
-    { radius: 0.5, tube: 0.068, z: -0.03, material: materials.copper },
-    { radius: 0.31, tube: 0.052, z: -0.1, material: materials.steel },
-  ]
-
-  arcSpecs.forEach((spec) => {
-    const material = track(
+  // The UNSTABLE FORGE mark: an upward strike over the anvil's face, struck
+  // into a hexagonal plate. Still metal, still forged — no lettering.
+  const markMaterial = (source) =>
+    track(
       new THREE.MeshStandardMaterial({
-        color: spec.material.color,
-        roughness: spec.material.roughness,
+        color: source.color,
+        roughness: source.roughness,
         metalness: 1,
         envMapIntensity: 1.35,
         transparent: true,
         opacity: 0,
       }),
     )
-    emblemMaterials.push(material)
-    const arc = new THREE.Mesh(
-      track(new THREE.TorusGeometry(spec.radius, spec.tube, 16, 84, Math.PI * 1.48)),
-      material,
-    )
-    // every C opens to the right, like a struck initial
-    arc.rotation.z = -Math.PI * 0.26
-    arc.rotation.x = -0.06
-    arc.position.z = spec.z
-    emblem.add(arc)
-  })
+
+  const goldMark = markMaterial(materials.gold)
+  const copperMark = markMaterial(materials.copper)
+  const steelMark = markMaterial(materials.steel)
+  emblemMaterials.push(goldMark, copperMark, steelMark)
+
+  // hexagonal forged plate behind the mark
+  const hexPlate = new THREE.Mesh(
+    track(new THREE.TorusGeometry(0.74, 0.052, 8, 6)),
+    goldMark,
+  )
+  hexPlate.rotation.z = Math.PI / 6
+  hexPlate.position.z = 0.02
+  emblem.add(hexPlate)
+
+  // the strike: two arms rising to a point, the hammer's own silhouette
+  for (const side of [-1, 1]) {
+    const arm = new THREE.Mesh(track(new THREE.BoxGeometry(0.1, 0.58, 0.1)), goldMark)
+    arm.position.set(side * 0.18, 0.2, 0.06)
+    arm.rotation.z = -side * 0.6
+    emblem.add(arm)
+  }
+
+  const strikeHead = new THREE.Mesh(
+    track(new THREE.BoxGeometry(0.16, 0.16, 0.11)),
+    goldMark,
+  )
+  strikeHead.position.set(0, 0.47, 0.06)
+  strikeHead.rotation.z = Math.PI / 4
+  emblem.add(strikeHead)
+
+  // the anvil face the strike lands on
+  const anvilFace = new THREE.Mesh(
+    track(new THREE.BoxGeometry(0.72, 0.09, 0.11)),
+    copperMark,
+  )
+  anvilFace.position.set(0, -0.1, 0.06)
+  emblem.add(anvilFace)
+
+  const anvilStem = new THREE.Mesh(
+    track(new THREE.BoxGeometry(0.16, 0.22, 0.09)),
+    steelMark,
+  )
+  anvilStem.position.set(0, -0.26, 0.05)
+  emblem.add(anvilStem)
+
+  const anvilFoot = new THREE.Mesh(
+    track(new THREE.BoxGeometry(0.4, 0.07, 0.09)),
+    steelMark,
+  )
+  anvilFoot.position.set(0, -0.4, 0.05)
+  emblem.add(anvilFoot)
 
   const emblemRing = new THREE.Mesh(
     track(new THREE.TorusGeometry(0.92, 0.012, 8, 96)),
@@ -900,6 +957,14 @@ export function createForgeWorld({ canvas, mobile = false }) {
     ram.position.y = hammerHeight(p)
     ram.position.x = 0
     hammer.position.z = -2.2 * smooth(0.6, 0.73, p)
+
+    // the rod stretches between the ram cap and the fixed cylinder head
+    const rodTop = 2.86
+    const rodBottom = ram.position.y + 0.6
+    const rodLength = Math.max(0.24, rodTop - rodBottom)
+    pistonRod.scale.y = rodLength
+    pistonRod.position.set(0, (rodTop + rodBottom) / 2, 0)
+    pistonCollar.position.set(0, rodTop - 0.1, 0)
 
     const strikeCount = IMPACTS.filter((point) => p >= point).length
     const heat = 1 + strikeCount * 0.22 + impulse * 1.6

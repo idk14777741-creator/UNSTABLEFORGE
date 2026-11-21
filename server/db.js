@@ -1,5 +1,6 @@
 import { openDatabase } from './db/index.js'
 import { hashPassword } from './auth.js'
+import { seedPlatform } from './platform/seed.js'
 
 /**
  * Application database entry point.
@@ -308,3 +309,6 @@ Registering records your participation details and gives you a registration refe
 }
 
 await ensureRegistrationAnnouncement()
+
+// Multi-event platform: event configuration, initial events, participant links.
+await seedPlatform(db)

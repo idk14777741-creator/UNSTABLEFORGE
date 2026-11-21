@@ -164,6 +164,9 @@ export default function AdminDashboard() {
               </div>
 
               <div className="admin-actions">
+                <Link className="ann-action" to="/admin/platform">
+                  EVENTS &amp; PAYMENTS
+                </Link>
                 <Link className="ann-action" to="/admin/announcements">
                   MANAGE UPDATES
                 </Link>

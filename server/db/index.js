@@ -6,8 +6,10 @@
  *   * SQLite      — local fallback through better-sqlite3 (existing data)
  *
  * Application SQL is written once with `?` placeholders. The PostgreSQL driver
- * rewrites them to $1..$n and appends `RETURNING id` to inserts so callers get
- * the same `{ id, changes }` shape from both engines.
+ * rewrites them to $1..$n and appends `RETURNING *` to inserts so callers get the
+ * same `{ id, changes }` shape from both engines. `RETURNING *` (rather than
+ * `RETURNING id`) keeps inserts working on tables keyed by something other than
+ * `id`, such as the 1:1 event_registration_settings row.
  *
  * Rules kept deliberately simple:
  *   * no ORM, no query builder — the project already uses plain SQL;
@@ -17,6 +19,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { applyMigrations } from './migrations.js'
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -76,7 +79,7 @@ const INSERT_PATTERN = /^\s*insert\s+into/i
 function withReturning(sql) {
   if (!INSERT_PATTERN.test(sql)) return sql
   if (/\breturning\b/i.test(sql)) return sql
-  return `${sql.replace(/;\s*$/, '')} RETURNING id`
+  return `${sql.replace(/;\s*$/, '')} RETURNING *`
 }
 
 // ------------------------------------------------------------------- SQLite
@@ -224,6 +227,9 @@ export async function openDatabase() {
     }
 
     await driver.exec(readSchema('postgres'))
+    // Platform tables, participants, payments, passes and certificates.
+    await applyMigrations(driver)
+    driver.platform = true
     console.log('[db] PostgreSQL ready')
     return driver
   }
@@ -239,6 +245,9 @@ export async function openDatabase() {
 
   const driver = await createSqliteDriver(databasePath)
   await driver.exec(readSchema('sqlite'))
+  // Multi-event platform features require PostgreSQL. The SQLite file keeps the
+  // original site working as the documented rollback path.
+  driver.platform = false
   console.log(`[db] SQLite ready at ${databasePath} (set DATABASE_URL to use PostgreSQL)`)
   return driver
 }
@@ -253,6 +262,7 @@ export async function checkDatabase(db) {
       return {
         ok: true,
         engine: 'postgres',
+        platform: true,
         database: row?.name ?? null,
         version: row?.version ?? null,
         latencyMs: Date.now() - startedAt,
@@ -263,6 +273,7 @@ export async function checkDatabase(db) {
     return {
       ok: true,
       engine: 'sqlite',
+      platform: false,
       database: process.env.DATABASE_PATH || 'server/data/unstable-forge.db',
       version: row?.version ?? null,
       latencyMs: Date.now() - startedAt,

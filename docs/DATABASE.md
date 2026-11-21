@@ -92,3 +92,22 @@ The full API suite (96 checks) passes against PostgreSQL.
 `GET /api/health` reports the engine, database name, server version and query
 latency, and returns 503 when the database stops answering. It never exposes
 the connection string.
+
+## Platform migrations
+
+`schema.postgres.sql` (the SQLite parity schema) is applied idempotently on every
+boot. Everything after it is a numbered migration in `server/db/migrations/`,
+applied once inside a transaction and recorded in `schema_migrations`:
+
+| Version | File | What it adds |
+| --- | --- | --- |
+| `002_platform` | `server/db/schema.platform.sql` | events configuration, content modules, participants, teams, payments, passes, check-ins, certificates, media, audit logs, organizer grants |
+| `003_fee_unit` | `server/db/migrations/003_fee_unit.sql` | per-team vs per-participant fee, one registration per participant per event |
+
+The migration is additive: it upgrades the migrated data in place, keeps the
+legacy `registrations` table (rows are linked to participant records and keep
+their `registered` status), and never deletes history.
+
+Multi-event platform features require PostgreSQL. On SQLite the original site
+keeps working as the documented rollback, and `/api/health` reports
+`platform: false`; platform routes answer `503 PLATFORM_UNAVAILABLE`.

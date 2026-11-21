@@ -28,6 +28,9 @@ const {
   consumeExchange,
 } = await import('./oauth.js')
 const { rateLimit } = await import('./rate-limit.js')
+const { registerPlatformRoutes, registerMediaRoot, claimParticipations } = await import(
+  './platform/routes.js'
+)
 
 const AUTH_RATE_MAX = Number(process.env.AUTH_RATE_MAX || 60)
 const authLimit = rateLimit({ name: 'auth', windowMs: 60_000, max: AUTH_RATE_MAX })
@@ -54,6 +57,11 @@ const DEFAULT_LIMIT = 6
 
 const app = express()
 app.disable('x-powered-by')
+
+// Registered before the JSON body parser: image uploads arrive as raw bytes and
+// are served back from /media.
+registerMediaRoot(app, { db })
+
 app.use(express.json({ limit: '100kb' }))
 
 /**
@@ -74,6 +82,7 @@ for (const method of ['get', 'post', 'patch', 'put', 'delete']) {
       ),
     )
 }
+
 
 // Unique-constraint violations surface as SQLITE_CONSTRAINT* on SQLite and
 // 23505 on PostgreSQL.
@@ -1124,6 +1133,16 @@ app.get('/api/auth/google/callback', oauthLimit, async (req, res) => {
   try {
     const profile = await exchangeCode(code)
     const user = await findOrCreateGoogleUser(profile)
+
+    // A Google email is verified by Google, so participation records that were
+    // created for this address (for example by a team captain) become visible
+    // in the participant's own dashboard.
+    await db.run(
+      'UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?), display_name = COALESCE(display_name, ?) WHERE id = ?',
+      [new Date().toISOString(), profile.name, user.id],
+    )
+    await claimParticipations(db, user)
+
     const { token, expiresAt } = signToken(user)
     const exchange = createExchange({ token, expiresAt, user: publicUser(user) })
 
@@ -1656,6 +1675,11 @@ if (fs.existsSync(distDirectory)) {
   })
 }
 
+// Multi-event platform: events, registration, payments, passes, check-in,
+// certificates and The Glimpse. Registered after the legacy routes so existing
+// paths such as /api/registrations/me always win over /api/registrations/:reference.
+registerPlatformRoutes(app, { db })
+
 app.use('/api', (req, res) => {
   res.status(404).json({ error: { code: 'NOT_FOUND', message: 'API route not found.' } })
 })
@@ -1666,6 +1690,18 @@ app.use((error, req, res, next) => {
   if (error?.type === 'entity.parse.failed') {
     return res.status(400).json({
       error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON.' },
+    })
+  }
+
+  // Expected, user-facing failures raised by the platform routes.
+  const status = Number(error?.status)
+  if (Number.isInteger(status) && status >= 400 && status < 500) {
+    return res.status(status).json({
+      error: {
+        code: error.code || 'REQUEST_FAILED',
+        message: error.message,
+        ...(error.fields ? { fields: error.fields } : {}),
+      },
     })
   }
 

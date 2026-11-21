@@ -1,0 +1,634 @@
+/* =========================================================
+   UNSTABLE FORGE — platform surfaces
+   Events, The Glimpse, passes, dashboards and certificates.
+   Built only from the existing tokens in styles.css so the
+   cinematic identity carries through.
+   ========================================================= */
+
+.pf-main {
+  background: var(--paper);
+  color: var(--ink);
+  min-height: 100vh;
+  padding: calc(var(--nav-h) + clamp(32px, 6vw, 72px)) 0 96px;
+}
+
+.pf-wrap {
+  width: min(1180px, 100% - var(--pad) * 2);
+  margin: 0 auto;
+}
+
+.pf-kicker {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--copper);
+}
+
+.pf-kicker::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+}
+
+.pf-title {
+  font-family: var(--display);
+  font-size: clamp(46px, 8vw, 104px);
+  line-height: 0.92;
+  letter-spacing: 0.01em;
+  margin: 18px 0 0;
+  text-transform: uppercase;
+}
+
+.pf-title em {
+  font-family: var(--serif);
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.pf-lede {
+  max-width: 62ch;
+  margin: 20px 0 0;
+  font-size: clamp(15px, 1.5vw, 18px);
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.pf-section {
+  margin-top: clamp(48px, 7vw, 88px);
+}
+
+.pf-section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.pf-section__title {
+  font-family: var(--display);
+  font-size: clamp(26px, 3vw, 40px);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.pf-section__note {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------ event cards */
+
+.pf-events {
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  margin-top: 28px;
+}
+
+.pf-event {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: clamp(16px, 3vw, 40px);
+  align-items: start;
+  padding: clamp(22px, 3vw, 34px);
+  background: var(--paper);
+  color: inherit;
+  text-decoration: none;
+  transition: background 380ms var(--ease), transform 380ms var(--ease);
+}
+
+.pf-event:hover,
+.pf-event:focus-visible {
+  background: var(--paper-2);
+}
+
+.pf-event__index {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+}
+
+.pf-event__type {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--copper);
+}
+
+.pf-event__title {
+  font-family: var(--display);
+  font-size: clamp(26px, 3.4vw, 44px);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin: 8px 0 10px;
+}
+
+.pf-event__copy {
+  max-width: 52ch;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.pf-event__status {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-align: right;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.pf-event__status[data-state='open'] {
+  color: var(--copper);
+}
+
+/* --------------------------------------------------------------- details */
+
+.pf-hero {
+  display: grid;
+  grid-template-columns: 1.35fr 0.65fr;
+  gap: clamp(24px, 5vw, 64px);
+  align-items: end;
+}
+
+.pf-facts {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.pf-fact {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.pf-fact span:last-child {
+  color: var(--muted);
+  text-align: right;
+}
+
+.pf-prose {
+  max-width: 68ch;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--ink-soft);
+  white-space: pre-line;
+}
+
+.pf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  margin-top: 24px;
+}
+
+.pf-card {
+  background: var(--paper);
+  padding: 22px 20px;
+}
+
+.pf-card__label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--copper);
+  text-transform: uppercase;
+}
+
+.pf-card__title {
+  font-family: var(--display);
+  font-size: 22px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin: 8px 0 6px;
+}
+
+.pf-card__copy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.pf-rules {
+  display: grid;
+  gap: 0;
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.pf-rule {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 18px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.pf-rule__index {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pf-rule__title {
+  font-family: var(--display);
+  font-size: 20px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin: 0 0 4px;
+}
+
+.pf-rule__body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------- the glimpse */
+
+.pf-glimpse {
+  margin-top: 26px;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: clamp(10px, 1.6vw, 20px);
+}
+
+.pf-glimpse__figure {
+  position: relative;
+  overflow: hidden;
+  margin: 0;
+  background: var(--ink-soft);
+  grid-column: span 6;
+  aspect-ratio: 3 / 2;
+}
+
+.pf-glimpse__figure--wide {
+  grid-column: span 12;
+  aspect-ratio: 21 / 9;
+}
+
+.pf-glimpse__figure--tall {
+  grid-column: span 4;
+  aspect-ratio: 2 / 3;
+}
+
+.pf-glimpse__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* settle from slightly zoomed-in to the natural composition on scroll */
+  transform: scale(1.07);
+  opacity: 0;
+  transition: transform 1200ms var(--ease), opacity 900ms var(--ease);
+}
+
+.pf-glimpse__figure.is-in .pf-glimpse__image {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.pf-glimpse__caption {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 18px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ivory);
+  background: linear-gradient(to top, rgba(13, 11, 8, 0.82), transparent);
+}
+
+.pf-glimpse__empty {
+  grid-column: span 12;
+  padding: 42px;
+  border: 1px dashed var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* --------------------------------------------------------------- forms */
+
+.pf-form {
+  margin-top: 26px;
+  display: grid;
+  gap: 18px;
+  max-width: 760px;
+}
+
+.pf-field {
+  display: grid;
+  gap: 7px;
+}
+
+.pf-field > span {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pf-field input,
+.pf-field textarea,
+.pf-field select {
+  font: inherit;
+  font-size: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 0;
+}
+
+.pf-field input:focus,
+.pf-field textarea:focus {
+  outline: 2px solid var(--copper);
+  outline-offset: 1px;
+}
+
+.pf-members {
+  display: grid;
+  gap: 12px;
+}
+
+.pf-member {
+  display: grid;
+  grid-template-columns: 1fr 1fr 0.7fr auto;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  align-items: end;
+}
+
+.pf-error {
+  color: #8c2f13;
+  font-size: 13px;
+}
+
+.pf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.pf-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 22px;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 240ms var(--ease), color 240ms var(--ease);
+}
+
+.pf-btn:hover {
+  background: var(--copper);
+  border-color: var(--copper);
+}
+
+.pf-btn--ghost {
+  background: transparent;
+  color: var(--ink);
+}
+
+.pf-btn--ghost:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.pf-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------- status cards */
+
+.pf-status {
+  margin-top: 28px;
+  border: 1px solid var(--line);
+  padding: clamp(22px, 3vw, 34px);
+  background: var(--paper-2);
+}
+
+.pf-status__label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--copper);
+}
+
+.pf-status__title {
+  font-family: var(--display);
+  font-size: clamp(24px, 3vw, 36px);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin: 10px 0 8px;
+}
+
+.pf-status__copy {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.pf-qr {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.pf-pass {
+  border: 1px solid var(--line);
+  padding: 18px;
+  background: var(--paper);
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+}
+
+.pf-pass img {
+  width: 168px;
+  height: 168px;
+  image-rendering: pixelated;
+  background: #fff;
+}
+
+.pf-pass__event {
+  font-family: var(--display);
+  font-size: 20px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.pf-pass__meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------- dashboard */
+
+.pf-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 30px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.pf-tab {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 9px 16px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pf-tab.is-active {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.pf-rows {
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  margin-top: 22px;
+}
+
+.pf-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 18px;
+  background: var(--paper);
+}
+
+.pf-row__title {
+  font-family: var(--display);
+  font-size: 20px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.pf-row__meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.pf-badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pf-badge[data-tone='good'] {
+  border-color: var(--copper);
+  color: var(--copper);
+}
+
+.pf-empty {
+  border: 1px dashed var(--line);
+  padding: 30px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 22px;
+}
+
+@media (max-width: 860px) {
+  .pf-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .pf-event {
+    grid-template-columns: 1fr;
+  }
+
+  .pf-event__status {
+    text-align: left;
+  }
+
+  .pf-member {
+    grid-template-columns: 1fr;
+  }
+
+  .pf-glimpse__figure,
+  .pf-glimpse__figure--tall {
+    grid-column: span 12;
+    aspect-ratio: 3 / 2;
+  }
+
+  .pf-row {
+    grid-template-columns: 1fr;
+  }
+}

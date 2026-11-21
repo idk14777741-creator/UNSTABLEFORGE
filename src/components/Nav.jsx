@@ -15,13 +15,17 @@ export default function Nav({ onOpenRegistration }) {
   const isAdmin = pathname.startsWith('/admin')
   const isRegistration = pathname === '/register'
   const isProjects = pathname.startsWith('/projects')
+  const isEvents = pathname.startsWith('/events')
+  const isDashboard = pathname.startsWith('/dashboard')
   const isBrief = pathname === '/brief'
   const SectionTag = Link
   const BrandTag = Link
   const sectionProps = (link) => ({ to: link.href })
   const brandProps = { to: '/' }
   const [scrolled, setScrolled] = useState(false)
-  const overDark = (isUpdates || isAdmin || isRegistration || isProjects || isBrief) && !scrolled
+  const overDark =
+    (isUpdates || isAdmin || isRegistration || isProjects || isEvents || isDashboard || isBrief) &&
+    !scrolled
   const [active, setActive] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const menuButtonRef = useRef(null)
@@ -279,6 +283,13 @@ export default function Nav({ onOpenRegistration }) {
             </SectionTag>
           ))}
           <Link
+            className={`nav__link ${isEvents ? 'is-active' : ''}`}
+            to="/events"
+            aria-current={isEvents ? 'page' : undefined}
+          >
+            EVENTS
+          </Link>
+          <Link
             className={`nav__link ${isProjects ? 'is-active' : ''}`}
             to={projectsLink.href}
             aria-current={isProjects ? 'page' : undefined}
@@ -298,13 +309,13 @@ export default function Nav({ onOpenRegistration }) {
           <span className="nav__event-status">C³ / TBA</span>
           {status === 'authenticated' ? (
             <div className="nav__account">
-              <Link
-                className={`nav__account-link ${isRegistration ? 'is-active' : ''}`}
-                to="/register"
-                aria-current={isRegistration ? 'page' : undefined}
-              >
-                MY ENTRY
-              </Link>
+                                <Link
+                    className={`nav__account-link ${isDashboard ? 'is-active' : ''}`}
+                    to="/dashboard"
+                    aria-current={isDashboard ? 'page' : undefined}
+                  >
+                    MY DASHBOARD
+                  </Link>
               {isOrganizer && (
                 <Link
                   className={`nav__account-link ${isAdmin ? 'is-active' : ''}`}

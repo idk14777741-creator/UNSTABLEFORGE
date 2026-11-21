@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { challengeDomains, domainDisclaimer } from '../data/challengeDomains'
+import { Link, navigate } from '../lib/router'
 import '../constellation.css'
 
 /**
@@ -21,33 +21,35 @@ const smooth = (a, b, value) => {
   return t * t * (3 - 2 * t)
 }
 
-function StaticField() {
+function StaticField({ nodes }) {
   return (
     <section className="cone-static" id="possibilities" aria-labelledby="cone-static-title">
       <div className="cone-static__inner">
-        <p className="cone-static__tag">SCENE 07 / THE POSSIBILITIES</p>
+        <p className="cone-static__tag">THE UNIVERSE</p>
         <h2 id="cone-static-title" className="cone-static__title">
-          A field of <em>possibilities.</em>
+          A universe of <em>events.</em>
         </h2>
         <p className="cone-static__lede">
-          Points of light, each one a place to begin. Choose the ground you want to build on.
+          Points of light, each one an event. Choose one to step closer.
         </p>
         <ul className="cone-static__list">
-          {challengeDomains.map((domain, index) => (
-            <li key={domain.id} className="cone-static__item">
+          {nodes.map((node, index) => (
+            <li key={node.id} className="cone-static__item">
               <span className="cone-static__index">{String(index + 1).padStart(2, '0')}</span>
-              <h3 className="cone-static__name">{domain.name}</h3>
-              <p className="cone-static__note">{domain.note}</p>
+              <h3 className="cone-static__name">
+                <Link to={node.href}>{node.label}</Link>
+              </h3>
+              <p className="cone-static__note">{node.note}</p>
+              <p className="cone-static__disclaimer">{node.meta}</p>
             </li>
           ))}
         </ul>
-        <p className="cone-static__disclaimer">{domainDisclaimer}</p>
       </div>
     </section>
   )
 }
 
-export default function ConstellationScene({ staticMode = false }) {
+export default function ConstellationScene({ staticMode = false, nodes = [] }) {
   const wrapRef = useRef(null)
   const canvasRef = useRef(null)
   const nodeRefs = useRef([])
@@ -71,7 +73,9 @@ export default function ConstellationScene({ staticMode = false }) {
   }, [focus])
 
   useEffect(() => {
-    if (staticMode) return undefined
+    // The field is built once the event list arrives: the node count is data,
+    // and rebuilding for every count change is cheaper than an empty field.
+    if (staticMode || nodes.length === 0) return undefined
 
     let world = null
     let frame = 0
@@ -138,7 +142,7 @@ export default function ConstellationScene({ staticMode = false }) {
         try {
           world = createConstellationWorld({
             canvas,
-            nodeCount: challengeDomains.length,
+            nodeCount: nodes.length,
             mobile: window.matchMedia('(max-width: 860px)').matches,
           })
         } catch {
@@ -222,13 +226,34 @@ export default function ConstellationScene({ staticMode = false }) {
       world = null
       worldRef.current = null
     }
-  }, [staticMode])
+  }, [staticMode, nodes.length])
 
   if (staticMode) {
-    return <StaticField />
+    return <StaticField nodes={nodes} />
   }
 
-  const focused = focus === null ? null : challengeDomains[focus]
+  // No published events means no constellation: the field is never padded with
+  // invented nodes just to look populated.
+  if (nodes.length === 0) {
+    return (
+      <section className="cone-static" id="possibilities" aria-labelledby="cone-empty-title">
+        <div className="cone-static__inner">
+          <p className="cone-static__tag">THE UNIVERSE</p>
+          <h2 id="cone-empty-title" className="cone-static__title">
+            The forge is <em>heating.</em>
+          </h2>
+          <p className="cone-static__lede">
+            Events appear in this constellation the moment an organizer publishes them.
+          </p>
+          <Link className="ann-action" to="/events">
+            VIEW ALL EVENTS
+          </Link>
+        </div>
+      </section>
+    )
+  }
+
+  const focused = focus === null ? null : nodes[focus]
 
   const skip = () => {
     document.getElementById('cine-end')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -242,7 +267,7 @@ export default function ConstellationScene({ staticMode = false }) {
         <span className="cone__scrim" aria-hidden="true" />
 
         <h2 id="cone-title" className="sr-only">
-          The field of possibilities — challenge domains for C³
+          The event universe — explore events across ALTA
         </h2>
 
         <p className="cone__caption" ref={captionRef}>
@@ -254,23 +279,26 @@ export default function ConstellationScene({ staticMode = false }) {
         <div
           className={`cone__nodes ${entered ? 'is-entered' : ''}`}
           role="group"
-          aria-label="Challenge domains"
+          aria-label="Events"
         >
-          {challengeDomains.map((domain, index) => (
+          {nodes.map((node, index) => (
             <button
-              key={domain.id}
+              key={node.id}
               type="button"
               className={`cone-node ${focus === index ? 'is-focus' : ''}`}
-              ref={(node) => {
-                nodeRefs.current[index] = node
+              ref={(element) => {
+                nodeRefs.current[index] = element
               }}
               onPointerEnter={() => setFocus(index)}
               onFocus={() => setFocus(index)}
-              onClick={() => setFocus(index)}
+              onClick={() => {
+                setFocus(index)
+                if (node.href) navigate(node.href)
+              }}
               aria-pressed={focus === index}
             >
               <span className="cone-node__dot" aria-hidden="true" />
-              <span className="cone-node__label">{domain.name}</span>
+              <span className="cone-node__label">{node.label}</span>
             </button>
           ))}
         </div>
@@ -286,27 +314,27 @@ export default function ConstellationScene({ staticMode = false }) {
           {focused ? (
             <>
               <p className="cone__panel-index">
-                DOMAIN {String((focus ?? 0) + 1).padStart(2, '0')} / {challengeDomains.length}
+                EVENT {String((focus ?? 0) + 1).padStart(2, '0')} / {nodes.length}
               </p>
-              <h3 className="cone__panel-title">{focused.name}</h3>
+              <h3 className="cone__panel-title">{focused.label}</h3>
               <p className="cone__panel-note">{focused.note}</p>
-              <p className="cone__panel-hint">HOVER, TAP OR TAB BETWEEN DOMAINS</p>
+              <p className="cone__panel-hint">SELECT TO OPEN THE EVENT</p>
             </>
           ) : (
             <>
-              <p className="cone__panel-index">THE FIELD</p>
+              <p className="cone__panel-index">THE UNIVERSE</p>
               <h3 className="cone__panel-title">
-                Twelve places
+                {nodes.length} {nodes.length === 1 ? 'event' : 'events'}
                 <br />
-                to begin.
+                to step into.
               </h3>
               <p className="cone__panel-note">
-                Move through the field and choose the ground you want to build on.
+                Move through the field and choose where you want to begin.
               </p>
-              <p className="cone__panel-hint">HOVER, TAP OR TAB BETWEEN DOMAINS</p>
+              <p className="cone__panel-hint">HOVER, TAP OR TAB BETWEEN EVENTS</p>
             </>
           )}
-          <p className="cone__panel-disclaimer">{domainDisclaimer}</p>
+          <p className="cone__panel-disclaimer">{focused?.meta || 'SET BY THE ORGANIZERS'}</p>
         </aside>
 
         <div className="cone-hud" aria-hidden="true">

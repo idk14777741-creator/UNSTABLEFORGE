@@ -37,13 +37,15 @@ function signature(payload) {
   return crypto.createHmac('sha256', secret()).update(payload).digest('base64url')
 }
 
-export function signToken(user) {
+export function signToken(user, { organizer = false } = {}) {
   const issuedAt = Math.floor(Date.now() / 1000)
   const payload = base64url(
     JSON.stringify({
       sub: user.id,
       email: user.email,
       role: user.role,
+      // Set only after the organizer's personal access code is verified.
+      ...(organizer ? { org: true } : {}),
       iat: issuedAt,
       exp: issuedAt + TOKEN_TTL_SECONDS,
     }),

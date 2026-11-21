@@ -25,10 +25,10 @@ const CAPTIONS = [
 ]
 
 const REVEALS = [
-  { from: 0.634, to: 0.714, kind: 'count', text: 'C × C × C' },
-  { from: 0.718, to: 0.792, kind: 'mark', text: 'C³' },
-  { from: 0.798, to: 0.872, kind: 'name', text: 'CRESCENT CODE CLASH' },
-  { from: 0.878, to: 1.02, kind: 'line', text: 'CODE. COMPETE. CONQUER.' },
+  { from: 0.634, to: 0.714, kind: 'count', text: 'ONE FORGE' },
+  { from: 0.718, to: 0.792, kind: 'mark', text: 'UNSTABLE' },
+  { from: 0.798, to: 0.872, kind: 'name', text: 'FORGE' },
+  { from: 0.878, to: 1.02, kind: 'line', text: 'WHERE IDEAS TAKE SHAPE.' },
 ]
 
 const clamp01 = (value) => (value < 0 ? 0 : value > 1 ? 1 : value)
@@ -52,7 +52,7 @@ function Ending() {
       <span className="cine-end__glow" aria-hidden="true" />
       <div className="cine-end__inner">
         <p className="cine-end__tag">
-          THE INVITATION <span aria-hidden="true">/</span> C³
+          THE INVITATION <span aria-hidden="true">/</span> THE UNIVERSE
         </p>
         <h2 id="cine-end-title" className="cine-end__title">
           The forge is ready.
@@ -60,8 +60,8 @@ function Ending() {
           <em>What will you create?</em>
         </h2>
         <div className="cine-end__actions">
-          <Link className="cine-btn cine-btn--solid" to="/register">
-            <span>ENTER C³</span>
+          <Link className="cine-btn cine-btn--solid" to="/events">
+            <span>EXPLORE THE EVENTS</span>
             <span className="cine-btn__arrow" aria-hidden="true">
               ↗
             </span>
@@ -74,14 +74,14 @@ function Ending() {
           </Link>
         </div>
         <p className="cine-end__meta">
-          REGISTRATION IS OPEN <span aria-hidden="true">/</span> EVENT DETAILS TBA
+          ONE FORGE <span aria-hidden="true">/</span> MANY CREATIONS
         </p>
       </div>
     </section>
   )
 }
 
-function StaticJourney({ reduced }) {
+function StaticJourney({ reduced, events }) {
   return (
     <main id="main" className={`cine-main cine-main--static ${reduced ? 'is-reduced' : ''}`}>
       <section className="cine-static__hero" aria-labelledby="cine-static-title">
@@ -89,14 +89,14 @@ function StaticJourney({ reduced }) {
         <span className="cine-static__anvil" aria-hidden="true" />
         <div className="cine-static__hero-copy">
           <p className="cine-static__kicker">
-            {brand.name} <span aria-hidden="true">/</span> C³
+            {brand.name} <span aria-hidden="true">/</span> THE FORGE
           </p>
           <h1 id="cine-static-title" className="cine-static__quote">
             Before something exists,
             <br />
             <em>someone imagines it.</em>
           </h1>
-          <p className="cine-static__meta">CRESCENT CODE CLASH — ALTA</p>
+          <p className="cine-static__meta">ALTA&apos;S EVENT PLATFORM</p>
         </div>
       </section>
 
@@ -109,15 +109,15 @@ function StaticJourney({ reduced }) {
 
       <section className="cine-static__chapter cine-static__chapter--identity" aria-labelledby="cine-static-reveal">
         <p className="cine-static__tag">THE REVELATION</p>
-        <p className="cine-static__sequence">C × C × C</p>
+        <p className="cine-static__sequence">ONE FORGE</p>
         <h2 id="cine-static-reveal" className="cine-static__mark">
-          C³
+          UNSTABLE
         </h2>
-        <p className="cine-static__name">CRESCENT CODE CLASH</p>
-        <p className="cine-static__line">CODE. COMPETE. CONQUER.</p>
+        <p className="cine-static__name">FORGE</p>
+        <p className="cine-static__line">WHERE IDEAS TAKE SHAPE.</p>
       </section>
 
-      <ConstellationScene staticMode />
+      <ConstellationScene staticMode nodes={events} />
 
       <Ending />
     </main>
@@ -142,6 +142,31 @@ export default function ForgedExperience() {
   )
   const [fallback, setFallback] = useState(false)
   const [ready, setReady] = useState(false)
+  const [events, setEvents] = useState([])
+
+  // The constellation is the event universe: nodes come from the API, never
+  // from a hardcoded list.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/events')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (cancelled || !payload?.data) return
+        setEvents(
+          payload.data.map((event) => ({
+            id: event.slug,
+            label: event.title,
+            note: event.shortDescription || event.tagline || '',
+            meta: `${event.type.toUpperCase()} / ${event.lifecycle.replace(/_/g, ' ').toUpperCase()}`,
+            href: `/events/${event.slug}`,
+          })),
+        )
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const staticMode = reduced || fallback
 
@@ -288,7 +313,7 @@ export default function ForgedExperience() {
   }
 
   if (staticMode) {
-    return <StaticJourney reduced={reduced} />
+    return <StaticJourney reduced={reduced} events={events} />
   }
 
   return (
@@ -298,7 +323,7 @@ export default function ForgedExperience() {
           <canvas ref={canvasRef} className="cine__canvas" aria-hidden="true" />
           <span className="cine__grade" aria-hidden="true" />
           <h1 id="cine-title" className="sr-only">
-            {brand.name} — C³ Crescent Code Clash. The idea is forged.
+            {brand.name} — where ideas take shape. The emblem is forged.
           </h1>
 
           <div className="cine__captions" aria-hidden="true">
@@ -353,13 +378,13 @@ export default function ForgedExperience() {
 
           <div className={`cine-loader ${ready ? 'is-done' : ''}`} aria-hidden="true">
             <span className="cine-loader__ember" />
-            <span className="cine-loader__mark">C³</span>
+            <span className="cine-loader__mark">UF</span>
             <span className="cine-loader__label">FIRING THE FORGE</span>
           </div>
         </div>
       </section>
 
-      <ConstellationScene />
+      <ConstellationScene nodes={events} />
 
       <Ending />
     </main>
