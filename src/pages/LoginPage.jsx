@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import AuthLayout from '../components/AuthLayout'
 import PasswordField from '../components/PasswordField'
+import GoogleAuthButton from '../components/GoogleAuthButton'
 import { Link, navigate, useRoute } from '../lib/router'
 import { roleHome, safeNext, useAuth } from '../context/AuthContext'
 
@@ -8,18 +9,21 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export default function LoginPage() {
   const { search } = useRoute()
-  const { login, expired } = useAuth()
+  const { login, loginWithGoogle, expired } = useAuth()
   const params = new URLSearchParams(search)
   const next = safeNext(params.get('next'))
   const registered = params.get('registered') === '1'
   const reason = params.get('reason')
   const presetEmail = params.get('email') || ''
+  const googleCode = params.get('google_code')
+  const googleError = params.get('google_error')
 
   const [email, setEmail] = useState(presetEmail)
   const [password, setPassword] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
   const [formError, setFormError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [googlePending, setGooglePending] = useState(Boolean(googleCode))
 
   useEffect(() => {
     document.title = 'Sign in — Unstable Forge'
@@ -27,6 +31,29 @@ export default function LoginPage() {
       document.title = 'Unstable Forge — C³ Crescent Code Clash'
     }
   }, [])
+
+  // The OAuth callback hands back a short-lived, single-use code. It is
+  // exchanged here for a session; the token never appears in the URL.
+  useEffect(() => {
+    if (!googleCode) return undefined
+
+    let active = true
+    setGooglePending(true)
+
+    loginWithGoogle(googleCode)
+      .then((user) => {
+        if (active) navigate(next || roleHome(user), { replace: true })
+      })
+      .catch((error) => {
+        if (!active) return
+        setFormError(error.message || 'Google sign-in failed. Try again.')
+        setGooglePending(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [googleCode, loginWithGoogle, next])
 
   const validate = () => {
     const errors = {}
@@ -87,6 +114,20 @@ export default function LoginPage() {
         </p>
       )}
 
+      {googleError && !formError && (
+        <p className="auth-banner auth-banner--warning" role="status">
+          {googleError === 'cancelled'
+            ? 'GOOGLE SIGN-IN WAS CANCELLED.'
+            : 'GOOGLE SIGN-IN COULD NOT BE COMPLETED. TRY AGAIN.'}
+        </p>
+      )}
+
+      {googlePending && !formError && (
+        <p className="auth-banner auth-banner--success" role="status">
+          COMPLETING GOOGLE SIGN-IN…
+        </p>
+      )}
+
       {formError && (
         <p className="auth-banner auth-banner--error" role="alert">
           {formError}
@@ -128,11 +169,13 @@ export default function LoginPage() {
           autoComplete="current-password"
         />
 
-        <button className="auth-submit" type="submit" disabled={submitting}>
+        <button className="auth-submit" type="submit" disabled={submitting || googlePending}>
           <span>{submitting ? 'OPENING THE FORGE…' : 'ENTER THE FORGE'}</span>
           <span aria-hidden="true">{submitting ? '···' : '→'}</span>
         </button>
       </form>
+
+      <GoogleAuthButton next={next} />
 
       <div className="auth-switch">
         <p>

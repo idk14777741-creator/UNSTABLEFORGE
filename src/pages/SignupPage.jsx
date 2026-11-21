@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import AuthLayout from '../components/AuthLayout'
 import PasswordField from '../components/PasswordField'
+import GoogleAuthButton from '../components/GoogleAuthButton'
 import { Link, navigate, useRoute } from '../lib/router'
 import { safeNext, useAuth } from '../context/AuthContext'
 
@@ -138,6 +139,8 @@ export default function SignupPage() {
           <span aria-hidden="true">{submitting ? '···' : '→'}</span>
         </button>
       </form>
+
+      <GoogleAuthButton next={next} />
 
       <div className="auth-switch">
         <p>

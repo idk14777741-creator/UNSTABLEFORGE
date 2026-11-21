@@ -1,100 +1,14 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import Database from 'better-sqlite3'
+import { openDatabase } from './db/index.js'
 import { hashPassword } from './auth.js'
 
-const databasePath =
-  process.env.DATABASE_PATH || path.resolve(process.cwd(), 'server/data/unstable-forge.db')
-
-fs.mkdirSync(path.dirname(databasePath), { recursive: true })
-
-export const db = new Database(databasePath)
-db.pragma('journal_mode = WAL')
-db.pragma('foreign_keys = ON')
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slug TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    tagline TEXT,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'organizer',
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS announcements (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    slug TEXT NOT NULL UNIQUE,
-    content TEXT NOT NULL,
-    category TEXT NOT NULL,
-    published_at TEXT,
-    is_published INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_announcements_public
-    ON announcements (is_published, published_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_announcements_event
-    ON announcements (event_id);
-  CREATE INDEX IF NOT EXISTS idx_announcements_category
-    ON announcements (category);
-
-  CREATE TABLE IF NOT EXISTS registrations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    full_name TEXT NOT NULL,
-    campus TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE (user_id, event_id),
-    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_registrations_event
-    ON registrations (event_id, created_at DESC);
-
-  CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    slug TEXT NOT NULL UNIQUE,
-    tagline TEXT NOT NULL,
-    description TEXT NOT NULL,
-    category TEXT NOT NULL,
-    technologies TEXT NOT NULL DEFAULT '[]',
-    team_name TEXT,
-    repo_url TEXT,
-    demo_url TEXT,
-    cover_image_url TEXT,
-    status TEXT NOT NULL DEFAULT 'draft'
-      CHECK (status IN ('draft', 'submitted', 'published', 'rejected')),
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    published_at TEXT,
-    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_projects_public
-    ON projects (status, published_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_projects_event
-    ON projects (event_id);
-  CREATE INDEX IF NOT EXISTS idx_projects_owner
-    ON projects (user_id);
-`)
+/**
+ * Application database entry point.
+ *
+ * Engine selection lives in server/db/index.js: PostgreSQL when DATABASE_URL is
+ * set, otherwise the existing SQLite file. Seeding is idempotent and never
+ * overwrites existing rows.
+ */
+export const db = await openDatabase()
 
 const now = () => new Date().toISOString()
 
@@ -108,20 +22,23 @@ export const EVENT = {
   tagline: 'Where ideas take shape.',
 }
 
-function seedEvent() {
-  const existing = db.prepare('SELECT * FROM events WHERE slug = ?').get(EVENT.slug)
+async function seedEvent() {
+  const existing = await db.get('SELECT * FROM events WHERE slug = ?', [EVENT.slug])
   if (existing) return existing
 
-  db.prepare(
-    'INSERT INTO events (slug, name, tagline, created_at) VALUES (?, ?, ?, ?)',
-  ).run(EVENT.slug, EVENT.name, EVENT.tagline, now())
+  await db.run('INSERT INTO events (slug, name, tagline, created_at) VALUES (?, ?, ?, ?)', [
+    EVENT.slug,
+    EVENT.name,
+    EVENT.tagline,
+    now(),
+  ])
 
-  return db.prepare('SELECT * FROM events WHERE slug = ?').get(EVENT.slug)
+  return db.get('SELECT * FROM events WHERE slug = ?', [EVENT.slug])
 }
 
-export const event = seedEvent()
+export const event = await seedEvent()
 
-function seedOrganizer() {
+async function seedOrganizer() {
   const email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
   const password = process.env.ADMIN_PASSWORD || ''
 
@@ -132,16 +49,19 @@ function seedOrganizer() {
     return
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email)
+  const existing = await db.get('SELECT id FROM users WHERE email = ?', [email])
   if (existing) return
 
-  db.prepare(
-    'INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
-  ).run(email, hashPassword(password), 'organizer', now())
+  await db.run('INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)', [
+    email,
+    hashPassword(password),
+    'organizer',
+    now(),
+  ])
   console.log(`[db] Seeded organizer account for ${email}.`)
 }
 
-seedOrganizer()
+await seedOrganizer()
 
 const seedAnnouncements = [
   {
@@ -283,27 +203,25 @@ This draft is intentionally unpublished and must not appear on the public site.`
   },
 ]
 
-function seedContent() {
-  const count = db.prepare('SELECT COUNT(*) AS count FROM announcements').get().count
+function slugifyAnnouncement(title) {
+  return title
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 72)
+}
+
+async function seedContent() {
+  const count = (await db.get('SELECT COUNT(*) AS count FROM announcements')).count
   if (count > 0) return
 
-  const insert = db.prepare(`
-    INSERT INTO announcements
-      (event_id, title, slug, content, category, published_at, is_published, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
   const used = new Set()
-  const slugify = (title) => {
-    const base = title
-      .toLowerCase()
-      .normalize('NFKD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 72)
 
-    let slug = base || 'announcement'
+  const uniqueSlug = (title) => {
+    const base = slugifyAnnouncement(title) || 'announcement'
+    let slug = base
     let suffix = 2
     while (used.has(slug)) {
       slug = `${base}-${suffix}`
@@ -313,69 +231,80 @@ function seedContent() {
     return slug
   }
 
-  const run = db.transaction(() => {
+  await db.withTransaction(async (trx) => {
     for (const item of seedAnnouncements) {
       const publishedAt = daysAgo(item.days)
-      insert.run(
-        event.id,
-        item.title,
-        slugify(item.title),
-        item.content,
-        item.category,
-        publishedAt,
-        1,
-        publishedAt,
-        publishedAt,
+      await trx.run(
+        `INSERT INTO announcements
+           (event_id, title, slug, content, category, published_at, is_published, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          event.id,
+          item.title,
+          uniqueSlug(item.title),
+          item.content,
+          item.category,
+          publishedAt,
+          true,
+          publishedAt,
+          publishedAt,
+        ],
       )
     }
 
     for (const item of seedDrafts) {
       const createdAt = daysAgo(2)
-      insert.run(
-        event.id,
-        item.title,
-        slugify(item.title),
-        item.content,
-        item.category,
-        null,
-        0,
-        createdAt,
-        createdAt,
+      await trx.run(
+        `INSERT INTO announcements
+           (event_id, title, slug, content, category, published_at, is_published, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          event.id,
+          item.title,
+          uniqueSlug(item.title),
+          item.content,
+          item.category,
+          null,
+          false,
+          createdAt,
+          createdAt,
+        ],
       )
     }
   })
 
-  run()
   console.log(`[db] Seeded ${seedAnnouncements.length + seedDrafts.length} announcements.`)
 }
 
-seedContent()
+await seedContent()
 
-function ensureRegistrationAnnouncement() {
+async function ensureRegistrationAnnouncement() {
   const slug = 'registration-is-now-open'
-  if (db.prepare('SELECT id FROM announcements WHERE slug = ?').get(slug)) return
+  const existing = await db.get('SELECT id FROM announcements WHERE slug = ?', [slug])
+  if (existing) return
 
   const timestamp = now()
-  db.prepare(
+  await db.run(
     `INSERT INTO announcements
-      (event_id, title, slug, content, category, published_at, is_published, created_at, updated_at)
+       (event_id, title, slug, content, category, published_at, is_published, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    event.id,
-    'Registration is now open',
-    slug,
-    `The C³ registration desk is open. Participants can create an account and register through the event site.
+    [
+      event.id,
+      'Registration is now open',
+      slug,
+      `The C³ registration desk is open. Participants can create an account and register through the event site.
 
 Registration currently collects your full name, account email, and campus. Event dates, venue, format, eligibility criteria, and team rules are still being confirmed and remain marked as TBA across the site.
 
 Registering records your participation details and gives you a registration reference. It does not confirm event logistics that have not been announced.`,
-    'Registration',
-    timestamp,
-    1,
-    timestamp,
-    timestamp,
+      'Registration',
+      timestamp,
+      true,
+      timestamp,
+      timestamp,
+    ],
   )
   console.log('[db] Seeded the registration-open announcement.')
 }
 
-ensureRegistrationAnnouncement()
+await ensureRegistrationAnnouncement()

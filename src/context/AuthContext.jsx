@@ -162,6 +162,23 @@ export function AuthProvider({ children }) {
     [applySession],
   )
 
+  const loginWithGoogle = useCallback(
+    async (code) => {
+      const body = await apiRequest('/api/auth/google/session', {
+        method: 'POST',
+        body: { code },
+      })
+      const session = {
+        token: body.token,
+        expiresAt: body.expiresAt,
+        user: body.user,
+      }
+      applySession(session)
+      return body.user
+    },
+    [applySession],
+  )
+
   const signup = useCallback(async (email, password) => {
     const body = await apiRequest('/api/auth/signup', {
       method: 'POST',
@@ -211,11 +228,12 @@ export function AuthProvider({ children }) {
       isAuthenticated: auth.status === 'authenticated',
       isOrganizer: isOrganizer(auth.user),
       login,
+      loginWithGoogle,
       signup,
       logout,
       request,
     }),
-    [auth, login, signup, logout, request],
+    [auth, login, loginWithGoogle, signup, logout, request],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

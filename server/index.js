@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import express from 'express'
 import { loadEnv } from './env.js'
 
@@ -13,6 +14,24 @@ if (!process.env.AUTH_SECRET || process.env.AUTH_SECRET.length < 16) {
 }
 
 const { db, event } = await import('./db.js')
+const { checkDatabase } = await import('./db/index.js')
+
+const databaseHealth = () => checkDatabase(db)
+
+const {
+  googleConfig,
+  createState,
+  verifyState,
+  authorizationUrl,
+  exchangeCode,
+  createExchange,
+  consumeExchange,
+} = await import('./oauth.js')
+const { rateLimit } = await import('./rate-limit.js')
+
+const AUTH_RATE_MAX = Number(process.env.AUTH_RATE_MAX || 60)
+const authLimit = rateLimit({ name: 'auth', windowMs: 60_000, max: AUTH_RATE_MAX })
+const oauthLimit = rateLimit({ name: 'oauth', windowMs: 60_000, max: 30 })
 const {
   signToken,
   verifyToken,
@@ -36,6 +55,36 @@ const DEFAULT_LIMIT = 6
 const app = express()
 app.disable('x-powered-by')
 app.use(express.json({ limit: '100kb' }))
+
+/**
+ * PostgreSQL and SQLite are both reached through an async driver, so every
+ * route handler can reject. Express 4 does not forward rejected promises, so
+ * handlers registered through these helpers are wrapped once here instead of
+ * in 25 places.
+ */
+for (const method of ['get', 'post', 'patch', 'put', 'delete']) {
+  const register = app[method].bind(app)
+  app[method] = (routePath, ...handlers) =>
+    register(
+      routePath,
+      ...handlers.map((handler) =>
+        typeof handler === 'function'
+          ? (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next)
+          : handler,
+      ),
+    )
+}
+
+// Unique-constraint violations surface as SQLITE_CONSTRAINT* on SQLite and
+// 23505 on PostgreSQL.
+function isUniqueViolation(error) {
+  const code = String(error?.code || '')
+  return code.startsWith('SQLITE_CONSTRAINT') || code === '23505'
+}
+
+// Both engines accept CAST(... AS TEXT); JSONB (PostgreSQL) cannot be LIKE'd
+// directly, so searchable JSON columns are cast in the query.
+const likeText = (column) => `CAST(${column} AS TEXT)`
 
 function slugify(value) {
   return value
@@ -115,7 +164,7 @@ function readBoolean(value, field, errors) {
   return value
 }
 
-function validateAnnouncement(input, { partial = false } = {}) {
+async function validateAnnouncement(input, { partial = false } = {}) {
   const errors = {}
   const data = {}
 
@@ -190,7 +239,7 @@ function validateAnnouncement(input, { partial = false } = {}) {
     if (typeof input.eventSlug !== 'string') {
       errors.eventSlug = 'eventSlug must be a string.'
     } else {
-      const row = db.prepare('SELECT id FROM events WHERE slug = ?').get(input.eventSlug)
+      const row = await db.get('SELECT id FROM events WHERE slug = ?', [input.eventSlug])
       if (!row) errors.eventSlug = 'Unknown event.'
       else data.eventId = row.id
     }
@@ -199,32 +248,33 @@ function validateAnnouncement(input, { partial = false } = {}) {
   return { data, errors }
 }
 
-function uniqueSlug(base, excludeId = null) {
+async function uniqueSlug(base, excludeId = null) {
   let candidate = base || 'announcement'
   let suffix = 2
-  const stmt = excludeId
-    ? db.prepare('SELECT id FROM announcements WHERE slug = ? AND id != ?')
-    : db.prepare('SELECT id FROM announcements WHERE slug = ?')
 
-  while (excludeId ? stmt.get(candidate, excludeId) : stmt.get(candidate)) {
+  for (;;) {
+    const clash = excludeId
+      ? await db.get('SELECT id FROM announcements WHERE slug = ? AND id != ?', [candidate, excludeId])
+      : await db.get('SELECT id FROM announcements WHERE slug = ?', [candidate])
+    if (!clash) return candidate
     candidate = `${base}-${suffix}`
     suffix += 1
   }
-  return candidate
 }
 
 function findAnnouncementById(id) {
-  return db
-    .prepare(
-      `SELECT a.*, e.slug AS event_slug, e.name AS event_name
+  return db.get(
+    `SELECT a.*, e.slug AS event_slug, e.name AS event_name
        FROM announcements a
        JOIN events e ON e.id = a.event_id
        WHERE a.id = ?`,
-    )
-    .get(id)
+    [id],
+  )
 }
 
 function parseTechnologies(value) {
+  // SQLite stores TEXT, PostgreSQL returns a JSONB array already.
+  if (Array.isArray(value)) return value
   try {
     const parsed = JSON.parse(value)
     return Array.isArray(parsed) ? parsed : []
@@ -269,15 +319,14 @@ function validateRegistration(input) {
 }
 
 function findRegistrationByUser(userId) {
-  return db
-    .prepare(
-      `SELECT r.*, e.slug AS event_slug, e.name AS event_name, u.email
+  return db.get(
+    `SELECT r.*, e.slug AS event_slug, e.name AS event_name, u.email
        FROM registrations r
        JOIN events e ON e.id = r.event_id
        JOIN users u ON u.id = r.user_id
        WHERE r.user_id = ? AND r.event_id = ?`,
-    )
-    .get(userId, event.id)
+    [userId, event.id],
+  )
 }
 
 function optionalUrl(value, field, errors, { github = false } = {}) {
@@ -449,15 +498,14 @@ function parseProjectId(value) {
 }
 
 function findProjectById(id) {
-  return db
-    .prepare(
-      `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
+  return db.get(
+    `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
        FROM projects p
        JOIN users u ON u.id = p.user_id
        JOIN events e ON e.id = p.event_id
        WHERE p.id = ?`,
-    )
-    .get(id)
+    [id],
+  )
 }
 
 function serializeProject(row, { includeOwner = false } = {}) {
@@ -488,18 +536,18 @@ function serializeProject(row, { includeOwner = false } = {}) {
   return payload
 }
 
-function uniqueProjectSlug(base, excludeId = null) {
+async function uniqueProjectSlug(base, excludeId = null) {
   let candidate = base || 'project'
   let suffix = 2
-  const statement = excludeId
-    ? db.prepare('SELECT id FROM projects WHERE slug = ? AND id != ?')
-    : db.prepare('SELECT id FROM projects WHERE slug = ?')
 
-  while (excludeId ? statement.get(candidate, excludeId) : statement.get(candidate)) {
+  for (;;) {
+    const clash = excludeId
+      ? await db.get('SELECT id FROM projects WHERE slug = ? AND id != ?', [candidate, excludeId])
+      : await db.get('SELECT id FROM projects WHERE slug = ?', [candidate])
+    if (!clash) return candidate
     candidate = `${base}-${suffix}`
     suffix += 1
   }
-  return candidate
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -530,11 +578,16 @@ function validateSignup(input) {
 
 // ---------------------------------------------------------------- public API
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', event: event.slug })
+app.get('/api/health', async (req, res) => {
+  const status = await databaseHealth()
+  res.status(status.ok ? 200 : 503).json({
+    status: status.ok ? 'ok' : 'degraded',
+    event: event.slug,
+    database: status,
+  })
 })
 
-app.get('/api/announcements', (req, res) => {
+app.get('/api/announcements', async (req, res) => {
   const { page, limit, errors } = pagination(req.query)
   const { category, error: categoryError } = categoryParam(req.query.category)
   if (categoryError) errors.category = categoryError
@@ -544,7 +597,7 @@ app.get('/api/announcements', (req, res) => {
 
   let eventId = event.id
   if (req.query.event !== undefined && req.query.event !== '') {
-    const row = db.prepare('SELECT id FROM events WHERE slug = ?').get(String(req.query.event))
+    const row = await db.get('SELECT id FROM events WHERE slug = ?', [String(req.query.event)])
     if (!row) errors.event = 'Unknown event.'
     else eventId = row.id
   }
@@ -555,7 +608,7 @@ app.get('/api/announcements', (req, res) => {
     })
   }
 
-  const where = ['a.is_published = 1', 'a.event_id = ?']
+  const where = ['a.is_published = TRUE', 'a.event_id = ?']
   const params = [eventId]
 
   if (category) {
@@ -564,29 +617,29 @@ app.get('/api/announcements', (req, res) => {
   }
 
   if (search) {
-    const escaped = search.replace(/[\\%_]/g, (character) => `\\${character}`)
-    where.push("(a.title LIKE ? ESCAPE '\\' OR a.content LIKE ? ESCAPE '\\')")
+    const escaped = search.replace(/[%_!]/g, (character) => `!${character}`)
+    where.push(
+      `(a.title ${db.likeOperator} ? ESCAPE '!' OR a.content ${db.likeOperator} ? ESCAPE '!')`,
+    )
     params.push(`%${escaped}%`, `%${escaped}%`)
   }
 
   const whereSql = where.join(' AND ')
-  const total = db
-    .prepare(`SELECT COUNT(*) AS count FROM announcements a WHERE ${whereSql}`)
-    .get(...params).count
+  const total = (await db.get(`SELECT COUNT(*) AS count FROM announcements a WHERE ${whereSql}`, params))
+    .count
 
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const offset = (page - 1) * limit
 
-  const rows = db
-    .prepare(
-      `SELECT a.*, e.slug AS event_slug, e.name AS event_name
+  const rows = await db.all(
+    `SELECT a.*, e.slug AS event_slug, e.name AS event_name
        FROM announcements a
        JOIN events e ON e.id = a.event_id
        WHERE ${whereSql}
        ORDER BY a.published_at DESC, a.id DESC
        LIMIT ? OFFSET ?`,
-    )
-    .all(...params, limit, offset)
+    [...params, limit, offset],
+  )
 
   res.json({
     data: rows.map((row) => serialize(row)),
@@ -600,27 +653,25 @@ app.get('/api/announcements', (req, res) => {
   })
 })
 
-app.get('/api/announcements/:identifier', (req, res) => {
+app.get('/api/announcements/:identifier', async (req, res) => {
   const { identifier } = req.params
   const id = parseId(identifier)
 
   const row = id
-    ? db
-        .prepare(
-          `SELECT a.*, e.slug AS event_slug, e.name AS event_name
+    ? await db.get(
+        `SELECT a.*, e.slug AS event_slug, e.name AS event_name
            FROM announcements a
            JOIN events e ON e.id = a.event_id
-           WHERE a.id = ? AND a.is_published = 1`,
-        )
-        .get(id)
-    : db
-        .prepare(
-          `SELECT a.*, e.slug AS event_slug, e.name AS event_name
+           WHERE a.id = ? AND a.is_published = TRUE`,
+        [id],
+      )
+    : await db.get(
+        `SELECT a.*, e.slug AS event_slug, e.name AS event_name
            FROM announcements a
            JOIN events e ON e.id = a.event_id
-           WHERE a.slug = ? AND a.is_published = 1`,
-        )
-        .get(identifier)
+           WHERE a.slug = ? AND a.is_published = TRUE`,
+        [identifier],
+      )
 
   if (!row) {
     return res.status(404).json({
@@ -633,12 +684,12 @@ app.get('/api/announcements/:identifier', (req, res) => {
 
 // ------------------------------------------------------- participant API
 
-app.get('/api/registrations/me', requireAuth, (req, res) => {
-  const row = findRegistrationByUser(Number(req.user.sub))
+app.get('/api/registrations/me', requireAuth, async (req, res) => {
+  const row = await findRegistrationByUser(Number(req.user.sub))
   return res.json({ data: row ? serializeRegistration(row, { includeEmail: true }) : null })
 })
 
-app.post('/api/registrations', requireAuth, (req, res) => {
+app.post('/api/registrations', requireAuth, async (req, res) => {
   const { data, errors } = validateRegistration(req.body || {})
   if (Object.keys(errors).length) {
     return res.status(400).json({
@@ -646,7 +697,7 @@ app.post('/api/registrations', requireAuth, (req, res) => {
     })
   }
 
-  const existing = findRegistrationByUser(Number(req.user.sub))
+  const existing = await findRegistrationByUser(Number(req.user.sub))
   if (existing) {
     return res.status(409).json({
       error: {
@@ -658,21 +709,20 @@ app.post('/api/registrations', requireAuth, (req, res) => {
 
   try {
     const timestamp = new Date().toISOString()
-    const result = db
-      .prepare(
-        `INSERT INTO registrations (event_id, user_id, full_name, campus, created_at)
+    const result = await db.run(
+      `INSERT INTO registrations (event_id, user_id, full_name, campus, created_at)
          VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(event.id, Number(req.user.sub), data.fullName, data.campus, timestamp)
+      [event.id, Number(req.user.sub), data.fullName, data.campus, timestamp],
+    )
 
     return res.status(201).json({
-      data: serializeRegistration(findRegistrationByUser(Number(req.user.sub)), {
+      data: serializeRegistration(await findRegistrationByUser(Number(req.user.sub)), {
         includeEmail: true,
       }),
-      id: Number(result.lastInsertRowid),
+      id: result.id,
     })
   } catch (error) {
-    if (String(error?.code).startsWith('SQLITE_CONSTRAINT')) {
+    if (isUniqueViolation(error)) {
       return res.status(409).json({
         error: {
           code: 'REGISTRATION_EXISTS',
@@ -693,7 +743,7 @@ function projectCategoryParam(value) {
   return { category: match }
 }
 
-app.get('/api/projects', (req, res) => {
+app.get('/api/projects', async (req, res) => {
   const { page, limit, errors } = pagination(req.query)
   const { category, error: categoryError } = projectCategoryParam(req.query.category)
   if (categoryError) errors.category = categoryError
@@ -714,31 +764,29 @@ app.get('/api/projects', (req, res) => {
     params.push(category)
   }
   if (search) {
-    const escaped = search.replace(/[\\%_]/g, (character) => `\\${character}`)
+    const escaped = search.replace(/[%_!]/g, (character) => `!${character}`)
     where.push(
-      "(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.description LIKE ? ESCAPE '\\' OR p.technologies LIKE ? ESCAPE '\\' OR p.team_name LIKE ? ESCAPE '\\')",
+      `(p.title ${db.likeOperator} ? ESCAPE '!' OR p.tagline ${db.likeOperator} ? ESCAPE '!' OR p.description ${db.likeOperator} ? ESCAPE '!' OR ${likeText('p.technologies')} ${db.likeOperator} ? ESCAPE '!' OR p.team_name ${db.likeOperator} ? ESCAPE '!')`,
     )
     params.push(`%${escaped}%`, `%${escaped}%`, `%${escaped}%`, `%${escaped}%`, `%${escaped}%`)
   }
 
   const whereSql = where.join(' AND ')
-  const total = db
-    .prepare(`SELECT COUNT(*) AS count FROM projects p WHERE ${whereSql}`)
-    .get(...params).count
+  const total = (await db.get(`SELECT COUNT(*) AS count FROM projects p WHERE ${whereSql}`, params))
+    .count
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const offset = (page - 1) * limit
 
-  const rows = db
-    .prepare(
-      `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
+  const rows = await db.all(
+    `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
        FROM projects p
        JOIN users u ON u.id = p.user_id
        JOIN events e ON e.id = p.event_id
        WHERE ${whereSql}
        ORDER BY p.published_at DESC, p.id DESC
        LIMIT ? OFFSET ?`,
-    )
-    .all(...params, limit, offset)
+    [...params, limit, offset],
+  )
 
   return res.json({
     data: rows.map((row) => serializeProject(row)),
@@ -746,55 +794,52 @@ app.get('/api/projects', (req, res) => {
   })
 })
 
-app.get('/api/projects/mine', requireAuth, (req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
+app.get('/api/projects/mine', requireAuth, async (req, res) => {
+  const rows = await db.all(
+    `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
        FROM projects p
        JOIN users u ON u.id = p.user_id
        JOIN events e ON e.id = p.event_id
        WHERE p.user_id = ? AND p.event_id = ?
        ORDER BY p.updated_at DESC, p.id DESC`,
-    )
-    .all(Number(req.user.sub), event.id)
+    [Number(req.user.sub), event.id],
+  )
 
   return res.json({ data: rows.map((row) => serializeProject(row)), meta: { total: rows.length } })
 })
 
-app.get('/api/projects/mine/:id', requireAuth, (req, res) => {
+app.get('/api/projects/mine/:id', requireAuth, async (req, res) => {
   const id = parseProjectId(req.params.id)
   if (!id) {
     return res.status(400).json({ error: { code: 'INVALID_ID', message: 'Project id must be a positive integer.' } })
   }
-  const row = findProjectById(id)
+  const row = await findProjectById(id)
   if (!row || row.user_id !== Number(req.user.sub)) {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found.' } })
   }
   return res.json({ data: serializeProject(row) })
 })
 
-app.get('/api/projects/:identifier', (req, res) => {
+app.get('/api/projects/:identifier', async (req, res) => {
   const { identifier } = req.params
   const id = parseId(identifier)
   const row = id
-    ? db
-        .prepare(
-          `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
+    ? await db.get(
+        `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
            FROM projects p
            JOIN users u ON u.id = p.user_id
            JOIN events e ON e.id = p.event_id
            WHERE p.id = ? AND p.status = 'published'`,
-        )
-        .get(id)
-    : db
-        .prepare(
-          `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
+        [id],
+      )
+    : await db.get(
+        `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
            FROM projects p
            JOIN users u ON u.id = p.user_id
            JOIN events e ON e.id = p.event_id
            WHERE p.slug = ? AND p.status = 'published'`,
-        )
-        .get(identifier)
+        [identifier],
+      )
 
   if (!row) {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found.' } })
@@ -802,7 +847,7 @@ app.get('/api/projects/:identifier', (req, res) => {
   return res.json({ data: serializeProject(row) })
 })
 
-app.post('/api/projects', requireAuth, (req, res) => {
+app.post('/api/projects', requireAuth, async (req, res) => {
   const { data, errors } = validateProject(req.body || {})
   if (Object.keys(errors).length) {
     return res.status(400).json({
@@ -822,18 +867,16 @@ app.post('/api/projects', requireAuth, (req, res) => {
   }
 
   const timestamp = new Date().toISOString()
-  const result = db
-    .prepare(
-      `INSERT INTO projects
+  const result = await db.run(
+    `INSERT INTO projects
         (event_id, user_id, title, slug, tagline, description, category, technologies,
          team_name, repo_url, demo_url, cover_image_url, status, created_at, updated_at, published_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
+    [
       event.id,
       Number(req.user.sub),
       data.title,
-      uniqueProjectSlug(baseSlug),
+      await uniqueProjectSlug(baseSlug),
       data.tagline,
       data.description,
       data.category,
@@ -846,17 +889,18 @@ app.post('/api/projects', requireAuth, (req, res) => {
       timestamp,
       timestamp,
       null,
-    )
+    ],
+  )
 
-  return res.status(201).json({ data: serializeProject(findProjectById(Number(result.lastInsertRowid))) })
+  return res.status(201).json({ data: serializeProject(await findProjectById(result.id)) })
 })
 
-app.patch('/api/projects/:id', requireAuth, (req, res) => {
+app.patch('/api/projects/:id', requireAuth, async (req, res) => {
   const id = parseProjectId(req.params.id)
   if (!id) {
     return res.status(400).json({ error: { code: 'INVALID_ID', message: 'Project id must be a positive integer.' } })
   }
-  const existing = findProjectById(id)
+  const existing = await findProjectById(id)
   if (!existing) {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found.' } })
   }
@@ -901,20 +945,17 @@ app.patch('/api/projects/:id', requireAuth, (req, res) => {
   const assignments = Object.keys(columns)
     .map((column) => `${column} = ?`)
     .join(', ')
-  db.prepare(`UPDATE projects SET ${assignments} WHERE id = ?`).run(
-    ...Object.values(columns),
-    id,
-  )
+  await db.run(`UPDATE projects SET ${assignments} WHERE id = ?`, [...Object.values(columns), id])
 
-  return res.json({ data: serializeProject(findProjectById(id)) })
+  return res.json({ data: serializeProject(await findProjectById(id)) })
 })
 
-app.delete('/api/projects/:id', requireAuth, (req, res) => {
+app.delete('/api/projects/:id', requireAuth, async (req, res) => {
   const id = parseProjectId(req.params.id)
   if (!id) {
     return res.status(400).json({ error: { code: 'INVALID_ID', message: 'Project id must be a positive integer.' } })
   }
-  const existing = findProjectById(id)
+  const existing = await findProjectById(id)
   if (!existing) {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found.' } })
   }
@@ -933,13 +974,188 @@ app.delete('/api/projects/:id', requireAuth, (req, res) => {
     })
   }
 
-  db.prepare('DELETE FROM projects WHERE id = ?').run(id)
+  await db.run('DELETE FROM projects WHERE id = ?', [id])
   return res.status(204).end()
 })
 
 // ------------------------------------------------------------ organizer API
 
-app.post('/api/auth/login', (req, res) => {
+// ------------------------------------------------------------ google sign-in
+
+function readCookie(req, name) {
+  const header = req.headers.cookie || ''
+  for (const part of header.split(';')) {
+    const trimmed = part.trim()
+    const separator = trimmed.indexOf('=')
+    if (separator === -1) continue
+    if (trimmed.slice(0, separator) === name) {
+      return decodeURIComponent(trimmed.slice(separator + 1))
+    }
+  }
+  return null
+}
+
+function safeNextPath(value) {
+  if (typeof value !== 'string') return null
+  if (!value.startsWith('/') || value.startsWith('//')) return null
+  if (value.length > 512) return null
+  return value
+}
+
+function publicUser(user) {
+  return { id: user.id, email: user.email, role: user.role }
+}
+
+/**
+ * Links or creates the local account for a Google identity.
+ *
+ * The email is only trusted because it came from a verified Google ID token.
+ * An existing account with the same verified email is linked rather than
+ * duplicated, and an account already linked to another Google subject is
+ * refused so a second Google account cannot take over an existing one.
+ */
+async function findOrCreateGoogleUser(profile) {
+  const linked = await db.get(
+    `SELECT u.* FROM oauth_accounts a JOIN users u ON u.id = a.user_id
+      WHERE a.provider = ? AND a.provider_user_id = ?`,
+    ['google', profile.subject],
+  )
+  if (linked) {
+    if (String(linked.email).toLowerCase() !== profile.email) {
+      throw new Error('This Google account no longer matches the linked account.')
+    }
+    return linked
+  }
+
+  const existing = await db.get('SELECT * FROM users WHERE lower(email) = lower(?)', [
+    profile.email,
+  ])
+
+  if (existing) {
+    const alreadyLinked = await db.get(
+      'SELECT user_id FROM oauth_accounts WHERE provider = ? AND user_id = ?',
+      ['google', existing.id],
+    )
+    if (alreadyLinked) {
+      throw new Error('This account is already linked to a different Google account.')
+    }
+
+    await db.run(
+      `INSERT INTO oauth_accounts (user_id, provider, provider_user_id, email, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [existing.id, 'google', profile.subject, profile.email, new Date().toISOString()],
+    )
+    return existing
+  }
+
+  const createdAt = new Date().toISOString()
+  // OAuth-only accounts get an unusable marker, never a password that could be
+  // guessed or logged. verifyPassword() rejects anything that is not scrypt$.
+  const unusable = `oauth$${crypto.randomBytes(32).toString('hex')}`
+
+  const created = await db.run(
+    'INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
+    [profile.email, unusable, 'participant', createdAt],
+  )
+
+  await db.run(
+    `INSERT INTO oauth_accounts (user_id, provider, provider_user_id, email, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [created.id, 'google', profile.subject, profile.email, createdAt],
+  )
+
+  return db.get('SELECT * FROM users WHERE id = ?', [created.id])
+}
+
+app.get('/api/auth/providers', (req, res) => {
+  const config = googleConfig()
+  res.json({ google: config.enabled })
+})
+
+app.get('/api/auth/google/start', oauthLimit, (req, res) => {
+  const config = googleConfig()
+  if (!config.enabled) {
+    return res.status(503).json({
+      error: {
+        code: 'GOOGLE_NOT_CONFIGURED',
+        message: 'Google sign-in is not configured on this deployment.',
+      },
+    })
+  }
+
+  const { state, nonce, maxAge } = createState()
+  const cookieOptions = {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  }
+
+  res.cookie('uf_oauth_state', nonce, { ...cookieOptions, maxAge })
+
+  const next = safeNextPath(req.query.next)
+  if (next) res.cookie('uf_oauth_next', next, { ...cookieOptions, maxAge })
+  else res.clearCookie('uf_oauth_next', { path: '/' })
+
+  return res.redirect(authorizationUrl({ state }))
+})
+
+app.get('/api/auth/google/callback', oauthLimit, async (req, res) => {
+  const config = googleConfig()
+  const backToLogin = (reason) =>
+    res.redirect(`${config.appUrl}/login?google_error=${encodeURIComponent(reason)}`)
+
+  if (req.query.error) {
+    return backToLogin(req.query.error === 'access_denied' ? 'cancelled' : 'denied')
+  }
+
+  // CSRF state is checked before anything else is believed.
+  const state = typeof req.query.state === 'string' ? req.query.state : ''
+  const cookieNonce = readCookie(req, 'uf_oauth_state') || ''
+  if (!verifyState(state, cookieNonce)) return backToLogin('state')
+
+  if (!config.enabled) return backToLogin('not_configured')
+
+  const code = typeof req.query.code === 'string' ? req.query.code : ''
+  if (!code) return backToLogin('code')
+
+  res.clearCookie('uf_oauth_state', { path: '/' })
+
+  try {
+    const profile = await exchangeCode(code)
+    const user = await findOrCreateGoogleUser(profile)
+    const { token, expiresAt } = signToken(user)
+    const exchange = createExchange({ token, expiresAt, user: publicUser(user) })
+
+    const next = safeNextPath(readCookie(req, 'uf_oauth_next'))
+    res.clearCookie('uf_oauth_next', { path: '/' })
+
+    const target = new URL(`${config.appUrl}/login`)
+    target.searchParams.set('google_code', exchange)
+    if (next) target.searchParams.set('next', next)
+    return res.redirect(target.toString())
+  } catch (error) {
+    // No token, no email, no account details in the log.
+    console.error('[auth] Google sign-in rejected:', error.message)
+    return backToLogin('failed')
+  }
+})
+
+app.post('/api/auth/google/session', authLimit, (req, res) => {
+  const entry = consumeExchange(req.body?.code)
+  if (!entry) {
+    return res.status(400).json({
+      error: {
+        code: 'INVALID_EXCHANGE',
+        message: 'That sign-in link is invalid or has expired. Start again.',
+      },
+    })
+  }
+
+  return res.json({ token: entry.token, expiresAt: entry.expiresAt, user: entry.user })
+})
+
+app.post('/api/auth/login', authLimit, async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
   const password = typeof req.body?.password === 'string' ? req.body.password : ''
 
@@ -949,7 +1165,7 @@ app.post('/api/auth/login', (req, res) => {
     })
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email)
+  const user = await db.get('SELECT * FROM users WHERE email = ?', [email])
   if (!user || !verifyPassword(password, user.password_hash)) {
     return res.status(401).json({
       error: { code: 'INVALID_CREDENTIALS', message: 'Incorrect email or password.' },
@@ -976,7 +1192,7 @@ app.get('/api/auth/me', (req, res) => {
   return res.json({ user: { id: claims.sub, email: claims.email, role: claims.role } })
 })
 
-app.post('/api/auth/signup', (req, res) => {
+app.post('/api/auth/signup', authLimit, async (req, res) => {
   const { email, password, errors } = validateSignup(req.body || {})
 
   if (Object.keys(errors).length) {
@@ -985,7 +1201,7 @@ app.post('/api/auth/signup', (req, res) => {
     })
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email)
+  const existing = await db.get('SELECT id FROM users WHERE email = ?', [email])
   if (existing) {
     return res.status(409).json({
       error: {
@@ -997,17 +1213,16 @@ app.post('/api/auth/signup', (req, res) => {
   }
 
   try {
-    const result = db
-      .prepare(
-        'INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(email, hashPassword(password), 'participant', new Date().toISOString())
+    const result = await db.run(
+      'INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
+      [email, hashPassword(password), 'participant', new Date().toISOString()],
+    )
 
     return res.status(201).json({
-      user: { id: Number(result.lastInsertRowid), email, role: 'participant' },
+      user: { id: result.id, email, role: 'participant' },
     })
   } catch (error) {
-    if (String(error?.code).startsWith('SQLITE_CONSTRAINT')) {
+    if (isUniqueViolation(error)) {
       return res.status(409).json({
         error: {
           code: 'EMAIL_TAKEN',
@@ -1020,7 +1235,7 @@ app.post('/api/auth/signup', (req, res) => {
   }
 })
 
-app.get('/api/admin/announcements', requireOrganizer, (req, res) => {
+app.get('/api/admin/announcements', requireOrganizer, async (req, res) => {
   const { page, limit, errors } = pagination(req.query)
   const { category, error: categoryError } = categoryParam(req.query.category)
   if (categoryError) errors.category = categoryError
@@ -1042,45 +1257,44 @@ app.get('/api/admin/announcements', requireOrganizer, (req, res) => {
   const where = ['a.event_id = ?']
   const params = [event.id]
 
-  if (status === 'published') where.push('a.is_published = 1')
-  if (status === 'draft') where.push('a.is_published = 0')
+  if (status === 'published') where.push('a.is_published = TRUE')
+  if (status === 'draft') where.push('a.is_published = FALSE')
   if (category) {
     where.push('a.category = ?')
     params.push(category)
   }
   if (search) {
-    const escaped = search.replace(/[\\%_]/g, (character) => `\\${character}`)
-    where.push("(a.title LIKE ? ESCAPE '\\' OR a.content LIKE ? ESCAPE '\\')")
+    const escaped = search.replace(/[%_!]/g, (character) => `!${character}`)
+    where.push(
+      `(a.title ${db.likeOperator} ? ESCAPE '!' OR a.content ${db.likeOperator} ? ESCAPE '!')`,
+    )
     params.push(`%${escaped}%`, `%${escaped}%`)
   }
 
   const whereSql = where.join(' AND ')
-  const total = db
-    .prepare(`SELECT COUNT(*) AS count FROM announcements a WHERE ${whereSql}`)
-    .get(...params).count
+  const total = (await db.get(`SELECT COUNT(*) AS count FROM announcements a WHERE ${whereSql}`, params))
+    .count
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const offset = (page - 1) * limit
 
-  const rows = db
-    .prepare(
-      `SELECT a.*, e.slug AS event_slug, e.name AS event_name
+  const rows = await db.all(
+    `SELECT a.*, e.slug AS event_slug, e.name AS event_name
        FROM announcements a
        JOIN events e ON e.id = a.event_id
        WHERE ${whereSql}
        ORDER BY a.updated_at DESC, a.id DESC
        LIMIT ? OFFSET ?`,
-    )
-    .all(...params, limit, offset)
+    [...params, limit, offset],
+  )
 
-  const summary = db
-    .prepare(
-      `SELECT
+  const summary = await db.get(
+    `SELECT
          COUNT(*) AS total,
-         COALESCE(SUM(CASE WHEN is_published = 1 THEN 1 ELSE 0 END), 0) AS published,
-         COALESCE(SUM(CASE WHEN is_published = 0 THEN 1 ELSE 0 END), 0) AS drafts
+         COALESCE(SUM(CASE WHEN is_published = TRUE THEN 1 ELSE 0 END), 0) AS published,
+         COALESCE(SUM(CASE WHEN is_published = FALSE THEN 1 ELSE 0 END), 0) AS drafts
        FROM announcements WHERE event_id = ?`,
-    )
-    .get(event.id)
+    [event.id],
+  )
 
   return res.json({
     data: rows.map((row) => serialize(row)),
@@ -1095,7 +1309,7 @@ app.get('/api/admin/announcements', requireOrganizer, (req, res) => {
   })
 })
 
-app.get('/api/admin/announcements/:id', requireOrganizer, (req, res) => {
+app.get('/api/admin/announcements/:id', requireOrganizer, async (req, res) => {
   const id = parseId(req.params.id)
   if (!id) {
     return res.status(400).json({
@@ -1103,7 +1317,7 @@ app.get('/api/admin/announcements/:id', requireOrganizer, (req, res) => {
     })
   }
 
-  const row = findAnnouncementById(id)
+  const row = await findAnnouncementById(id)
   if (!row) {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Announcement not found.' } })
   }
@@ -1111,8 +1325,8 @@ app.get('/api/admin/announcements/:id', requireOrganizer, (req, res) => {
   return res.json({ data: serialize(row, { includeContent: true }) })
 })
 
-app.post('/api/announcements', requireOrganizer, (req, res) => {
-  const { data, errors } = validateAnnouncement(req.body || {})
+app.post('/api/announcements', requireOrganizer, async (req, res) => {
+  const { data, errors } = await validateAnnouncement(req.body || {})
 
   if (Object.keys(errors).length) {
     return res.status(400).json({
@@ -1131,35 +1345,34 @@ app.post('/api/announcements', requireOrganizer, (req, res) => {
     })
   }
 
-  const slug = uniqueSlug(baseSlug)
+  const slug = await uniqueSlug(baseSlug)
   const timestamp = new Date().toISOString()
   const isPublished = data.isPublished ?? false
   const publishedAt = isPublished ? data.publishedAt || timestamp : data.publishedAt || null
   const eventId = data.eventId || event.id
 
-  const result = db
-    .prepare(
-      `INSERT INTO announcements
+  const result = await db.run(
+    `INSERT INTO announcements
         (event_id, title, slug, content, category, published_at, is_published, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
+    [
       eventId,
       data.title,
       slug,
       data.content,
       data.category,
       publishedAt,
-      isPublished ? 1 : 0,
+      isPublished,
       timestamp,
       timestamp,
-    )
+    ],
+  )
 
-  const row = findAnnouncementById(Number(result.lastInsertRowid))
+  const row = await findAnnouncementById(result.id)
   return res.status(201).json({ data: serialize(row, { includeContent: true }) })
 })
 
-app.patch('/api/announcements/:id', requireOrganizer, (req, res) => {
+app.patch('/api/announcements/:id', requireOrganizer, async (req, res) => {
   const id = parseId(req.params.id)
   if (!id) {
     return res.status(400).json({
@@ -1167,14 +1380,14 @@ app.patch('/api/announcements/:id', requireOrganizer, (req, res) => {
     })
   }
 
-  const existing = findAnnouncementById(id)
+  const existing = await findAnnouncementById(id)
   if (!existing) {
     return res.status(404).json({
       error: { code: 'NOT_FOUND', message: 'Announcement not found.' },
     })
   }
 
-  const { data, errors } = validateAnnouncement(req.body || {}, { partial: true })
+  const { data, errors } = await validateAnnouncement(req.body || {}, { partial: true })
 
   if (Object.keys(errors).length) {
     return res.status(400).json({
@@ -1196,11 +1409,11 @@ app.patch('/api/announcements/:id', requireOrganizer, (req, res) => {
   if (data.publishedAt !== undefined) updates.published_at = data.publishedAt
 
   if (data.slug !== undefined) {
-    updates.slug = data.slug === existing.slug ? existing.slug : uniqueSlug(data.slug, id)
+    updates.slug = data.slug === existing.slug ? existing.slug : await uniqueSlug(data.slug, id)
   }
 
   if (data.isPublished !== undefined) {
-    updates.is_published = data.isPublished ? 1 : 0
+    updates.is_published = data.isPublished
     if (data.isPublished) {
       updates.published_at =
         data.publishedAt !== undefined
@@ -1214,15 +1427,12 @@ app.patch('/api/announcements/:id', requireOrganizer, (req, res) => {
   const assignments = Object.keys(updates)
     .map((column) => `${column} = ?`)
     .join(', ')
-  db.prepare(`UPDATE announcements SET ${assignments} WHERE id = ?`).run(
-    ...Object.values(updates),
-    id,
-  )
+  await db.run(`UPDATE announcements SET ${assignments} WHERE id = ?`, [...Object.values(updates), id])
 
-  res.json({ data: serialize(findAnnouncementById(id), { includeContent: true }) })
+  res.json({ data: serialize(await findAnnouncementById(id), { includeContent: true }) })
 })
 
-app.delete('/api/announcements/:id', requireOrganizer, (req, res) => {
+app.delete('/api/announcements/:id', requireOrganizer, async (req, res) => {
   const id = parseId(req.params.id)
   if (!id) {
     return res.status(400).json({
@@ -1230,7 +1440,7 @@ app.delete('/api/announcements/:id', requireOrganizer, (req, res) => {
     })
   }
 
-  const result = db.prepare('DELETE FROM announcements WHERE id = ?').run(id)
+  const result = await db.run('DELETE FROM announcements WHERE id = ?', [id])
   if (result.changes === 0) {
     return res.status(404).json({
       error: { code: 'NOT_FOUND', message: 'Announcement not found.' },
@@ -1240,7 +1450,7 @@ app.delete('/api/announcements/:id', requireOrganizer, (req, res) => {
   res.status(204).end()
 })
 
-app.get('/api/admin/registrations', requireOrganizer, (req, res) => {
+app.get('/api/admin/registrations', requireOrganizer, async (req, res) => {
   const { page, limit, errors } = pagination(req.query)
   const search = typeof req.query.q === 'string' ? req.query.q.trim() : ''
   if (search.length > 100) errors.q = 'q must be 100 characters or fewer.'
@@ -1257,47 +1467,49 @@ app.get('/api/admin/registrations', requireOrganizer, (req, res) => {
   const where = ['r.event_id = ?']
   const params = [event.id]
   if (campus) {
-    where.push('r.campus = ? COLLATE NOCASE')
+    where.push('lower(r.campus) = lower(?)')
     params.push(campus)
   }
   if (search) {
-    const escaped = search.replace(/[\\%_]/g, (character) => `\\${character}`)
+    const escaped = search.replace(/[%_!]/g, (character) => `!${character}`)
     where.push(
-      "(r.full_name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\' OR r.campus LIKE ? ESCAPE '\\')",
+      `(r.full_name ${db.likeOperator} ? ESCAPE '!' OR u.email ${db.likeOperator} ? ESCAPE '!' OR r.campus ${db.likeOperator} ? ESCAPE '!')`,
     )
     params.push(`%${escaped}%`, `%${escaped}%`, `%${escaped}%`)
   }
 
   const whereSql = where.join(' AND ')
-  const total = db
-    .prepare(
+  const total = (
+    await db.get(
       `SELECT COUNT(*) AS count FROM registrations r JOIN users u ON u.id = r.user_id WHERE ${whereSql}`,
+      params,
     )
-    .get(...params).count
+  ).count
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const offset = (page - 1) * limit
 
-  const rows = db
-    .prepare(
-      `SELECT r.*, e.slug AS event_slug, e.name AS event_name, u.email
+  const rows = await db.all(
+    `SELECT r.*, e.slug AS event_slug, e.name AS event_name, u.email
        FROM registrations r
        JOIN events e ON e.id = r.event_id
        JOIN users u ON u.id = r.user_id
        WHERE ${whereSql}
        ORDER BY r.created_at DESC, r.id DESC
        LIMIT ? OFFSET ?`,
-    )
-    .all(...params, limit, offset)
+    [...params, limit, offset],
+  )
 
-  const campuses = db
-    .prepare(
-      'SELECT DISTINCT campus FROM registrations WHERE event_id = ? ORDER BY campus COLLATE NOCASE',
+  const campuses = (
+    await db.all(
+      // DISTINCT + ORDER BY needs the sort expression in the select list on
+      // PostgreSQL; SQLite accepts the same statement.
+      'SELECT DISTINCT campus, lower(campus) AS sort_key FROM registrations WHERE event_id = ? ORDER BY sort_key',
+      [event.id],
     )
-    .all(event.id)
-    .map((row) => row.campus)
-  const totalAll = db
-    .prepare('SELECT COUNT(*) AS count FROM registrations WHERE event_id = ?')
-    .get(event.id).count
+  ).map((row) => row.campus)
+  const totalAll = (
+    await db.get('SELECT COUNT(*) AS count FROM registrations WHERE event_id = ?', [event.id])
+  ).count
 
   return res.json({
     data: rows.map((row) => serializeRegistration(row, { includeEmail: true })),
@@ -1313,7 +1525,7 @@ app.get('/api/admin/registrations', requireOrganizer, (req, res) => {
   })
 })
 
-app.get('/api/admin/projects', requireOrganizer, (req, res) => {
+app.get('/api/admin/projects', requireOrganizer, async (req, res) => {
   const { page, limit, errors } = pagination(req.query)
   const { category, error: categoryError } = projectCategoryParam(req.query.category)
   if (categoryError) errors.category = categoryError
@@ -1343,9 +1555,9 @@ app.get('/api/admin/projects', requireOrganizer, (req, res) => {
     params.push(category)
   }
   if (search) {
-    const escaped = search.replace(/[\\%_]/g, (character) => `\\${character}`)
+    const escaped = search.replace(/[%_!]/g, (character) => `!${character}`)
     where.push(
-      "(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.description LIKE ? ESCAPE '\\' OR p.technologies LIKE ? ESCAPE '\\' OR p.team_name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')",
+      `(p.title ${db.likeOperator} ? ESCAPE '!' OR p.tagline ${db.likeOperator} ? ESCAPE '!' OR p.description ${db.likeOperator} ? ESCAPE '!' OR ${likeText('p.technologies')} ${db.likeOperator} ? ESCAPE '!' OR p.team_name ${db.likeOperator} ? ESCAPE '!' OR u.email ${db.likeOperator} ? ESCAPE '!')`,
     )
     params.push(
       `%${escaped}%`,
@@ -1358,37 +1570,36 @@ app.get('/api/admin/projects', requireOrganizer, (req, res) => {
   }
 
   const whereSql = where.join(' AND ')
-  const total = db
-    .prepare(
+  const total = (
+    await db.get(
       `SELECT COUNT(*) AS count FROM projects p JOIN users u ON u.id = p.user_id WHERE ${whereSql}`,
+      params,
     )
-    .get(...params).count
+  ).count
   const totalPages = Math.max(1, Math.ceil(total / limit))
   const offset = (page - 1) * limit
 
-  const rows = db
-    .prepare(
-      `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
+  const rows = await db.all(
+    `SELECT p.*, u.email AS owner_email, e.slug AS event_slug, e.name AS event_name
        FROM projects p
        JOIN users u ON u.id = p.user_id
        JOIN events e ON e.id = p.event_id
        WHERE ${whereSql}
        ORDER BY p.updated_at DESC, p.id DESC
        LIMIT ? OFFSET ?`,
-    )
-    .all(...params, limit, offset)
+    [...params, limit, offset],
+  )
 
-  const summary = db
-    .prepare(
-      `SELECT
+  const summary = await db.get(
+    `SELECT
          COUNT(*) AS total,
          COALESCE(SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END), 0) AS drafts,
          COALESCE(SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END), 0) AS submitted,
          COALESCE(SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END), 0) AS published,
          COALESCE(SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END), 0) AS rejected
        FROM projects WHERE event_id = ?`,
-    )
-    .get(event.id)
+    [event.id],
+  )
 
   return res.json({
     data: rows.map((row) => serializeProject(row, { includeOwner: true })),
@@ -1403,12 +1614,12 @@ app.get('/api/admin/projects', requireOrganizer, (req, res) => {
   })
 })
 
-app.patch('/api/admin/projects/:id', requireOrganizer, (req, res) => {
+app.patch('/api/admin/projects/:id', requireOrganizer, async (req, res) => {
   const id = parseProjectId(req.params.id)
   if (!id) {
     return res.status(400).json({ error: { code: 'INVALID_ID', message: 'Project id must be a positive integer.' } })
   }
-  const existing = findProjectById(id)
+  const existing = await findProjectById(id)
   if (!existing) {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found.' } })
   }
@@ -1425,11 +1636,14 @@ app.patch('/api/admin/projects/:id', requireOrganizer, (req, res) => {
 
   const timestamp = new Date().toISOString()
   const publishedAt = status === 'published' ? timestamp : null
-  db.prepare(
-    'UPDATE projects SET status = ?, published_at = ?, updated_at = ? WHERE id = ?',
-  ).run(status, publishedAt, timestamp, id)
+  await db.run('UPDATE projects SET status = ?, published_at = ?, updated_at = ? WHERE id = ?', [
+    status,
+    publishedAt,
+    timestamp,
+    id,
+  ])
 
-  return res.json({ data: serializeProject(findProjectById(id), { includeOwner: true }) })
+  return res.json({ data: serializeProject(await findProjectById(id), { includeOwner: true }) })
 })
 
 // ------------------------------------------------------------ static + errors

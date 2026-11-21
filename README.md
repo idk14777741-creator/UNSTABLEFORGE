@@ -275,3 +275,20 @@ Known limitations: the existing API is bearer-token based, so the session is kep
 ---
 
 *Built as part of the ALTA BUILDER 30 challenge — Track A.*
+
+## Database and sign-in
+
+The API runs on PostgreSQL when `DATABASE_URL` is set, and on the local SQLite
+file otherwise. Both are reached through the same async driver, so routes are
+engine-agnostic.
+
+```bash
+npm run db:local          # embedded PostgreSQL on 127.0.0.1:54329 (no account needed)
+npm run migrate:postgres  # SQLite → PostgreSQL, with backup and verification
+npm run test:api          # API suite (96 checks)
+npm run test:oauth        # Google OAuth surface (18 checks)
+```
+
+- Database setup, migration and rollback: [docs/DATABASE.md](docs/DATABASE.md)
+- Google sign-in and the Google Cloud checklist: [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md)
+- Platform roadmap: [docs/PLATFORM_EVOLUTION.md](docs/PLATFORM_EVOLUTION.md)
