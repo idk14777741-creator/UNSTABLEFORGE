@@ -68,10 +68,8 @@ function normaliseSqliteParam(value) {
   return value
 }
 
-function normalisePostgresParam(value) {
-  if (value === undefined) return null
-  return value
-}
+// pg maps `undefined` to NULL only by accident; be explicit about it.
+const normalisePostgresParam = (value) => value ?? null
 
 const INSERT_PATTERN = /^\s*insert\s+into/i
 
@@ -153,58 +151,36 @@ async function createPostgresDriver(databaseUrl) {
     console.error('[db] idle PostgreSQL client error:', error.message)
   })
 
-  const run = async (executor, sql, params) => {
-    const text = withReturning(toPostgresPlaceholders(sql))
-    const result = await executor.query(text, params.map(normalisePostgresParam))
-    if (INSERT_PATTERN.test(sql)) {
-      return { id: result.rows[0]?.id ?? null, changes: result.rowCount }
+  // One statement adapter, bound either to the pool or to a transaction's
+  // dedicated client, so the SQL rewriting rules exist in exactly one place.
+  const statements = (executor) => {
+    const send = (sql, params = []) =>
+      executor.query(toPostgresPlaceholders(sql), params.map(normalisePostgresParam))
+
+    return {
+      exec: async (sql) => {
+        await executor.query(sql)
+      },
+      all: async (sql, params = []) => (await send(sql, params)).rows,
+      get: async (sql, params = []) => (await send(sql, params)).rows[0] ?? null,
+      run: async (sql, params = []) => {
+        const isInsert = INSERT_PATTERN.test(sql)
+        const result = await send(isInsert ? withReturning(sql) : sql, params)
+        return { id: isInsert ? (result.rows[0]?.id ?? null) : null, changes: result.rowCount }
+      },
     }
-    return { id: null, changes: result.rowCount }
   }
 
   const driver = {
     engine: 'postgres',
     label: 'PostgreSQL',
     likeOperator: 'ILIKE',
-    pool,
-    exec: async (sql) => {
-      await pool.query(sql)
-    },
-    all: async (sql, params = []) => {
-      const result = await pool.query(toPostgresPlaceholders(sql), params.map(normalisePostgresParam))
-      return result.rows
-    },
-    get: async (sql, params = []) => {
-      const result = await pool.query(toPostgresPlaceholders(sql), params.map(normalisePostgresParam))
-      return result.rows[0] ?? null
-    },
-    run: async (sql, params = []) => run(pool, sql, params),
+    ...statements(pool),
     withTransaction: async (work) => {
       const client = await pool.connect()
       try {
         await client.query('BEGIN')
-        const scoped = {
-          ...driver,
-          all: async (sql, params = []) => {
-            const result = await client.query(
-              toPostgresPlaceholders(sql),
-              params.map(normalisePostgresParam),
-            )
-            return result.rows
-          },
-          get: async (sql, params = []) => {
-            const result = await client.query(
-              toPostgresPlaceholders(sql),
-              params.map(normalisePostgresParam),
-            )
-            return result.rows[0] ?? null
-          },
-          run: async (sql, params = []) => run(client, sql, params),
-          exec: async (sql) => {
-            await client.query(sql)
-          },
-        }
-        const result = await work(scoped)
+        const result = await work({ ...driver, ...statements(client) })
         await client.query('COMMIT')
         return result
       } catch (error) {
@@ -232,7 +208,7 @@ function readSchema(engine) {
  * Throws DatabaseUnavailableError with an actionable message when the target
  * cannot be reached, so the API fails clearly instead of half-starting.
  */
-export async function openDatabase({ log = console } = {}) {
+export async function openDatabase() {
   const databaseUrl = process.env.DATABASE_URL
 
   if (databaseUrl) {
@@ -248,7 +224,7 @@ export async function openDatabase({ log = console } = {}) {
     }
 
     await driver.exec(readSchema('postgres'))
-    log.info?.('[db] PostgreSQL ready')
+    console.log('[db] PostgreSQL ready')
     return driver
   }
 
@@ -263,7 +239,7 @@ export async function openDatabase({ log = console } = {}) {
 
   const driver = await createSqliteDriver(databasePath)
   await driver.exec(readSchema('sqlite'))
-  log.info?.(`[db] SQLite ready at ${databasePath} (set DATABASE_URL to use PostgreSQL)`)
+  console.log(`[db] SQLite ready at ${databasePath} (set DATABASE_URL to use PostgreSQL)`)
   return driver
 }
 

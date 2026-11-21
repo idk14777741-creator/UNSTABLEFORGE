@@ -73,7 +73,7 @@ export function verifyState(state, cookieNonce) {
   return crypto.timingSafeEqual(provided, intended)
 }
 
-export function authorizationUrl({ state, next }) {
+export function authorizationUrl(state) {
   const { clientId, callbackUrl } = googleConfig()
   const url = new URL(AUTH_ENDPOINT)
   url.searchParams.set('client_id', clientId)
@@ -83,36 +83,35 @@ export function authorizationUrl({ state, next }) {
   url.searchParams.set('state', state)
   url.searchParams.set('prompt', 'select_account')
   url.searchParams.set('include_granted_scopes', 'true')
-  if (next) url.searchParams.set('login_hint', '')
   return url.toString()
 }
 
-function client() {
-  const { clientId, clientSecret, callbackUrl } = googleConfig()
+function oauthClient({ clientId, clientSecret, callbackUrl }) {
   return new OAuth2Client({ clientId, clientSecret, redirectUri: callbackUrl })
 }
 
 /**
- * Exchanges an authorization code and verifies the resulting ID token:
- * signature (Google's JWKS), issuer, audience, expiry, and the verified email
- * claim. Throws on any failure — callers must not trust partial data.
+ * Exchanges an authorization code and verifies the resulting ID token.
+ *
+ * `verifyIdToken` checks the signature against Google's published keys, plus
+ * issuer, audience and expiry, so only the claims we act on are re-checked
+ * here. Throws on any failure — callers must not trust partial data.
  */
 export async function exchangeCode(code) {
-  const { clientId } = googleConfig()
-  if (!clientId) throw new Error('GOOGLE_CLIENT_ID is not configured.')
+  const config = googleConfig()
+  if (!config.enabled) throw new Error('Google sign-in is not configured.')
 
-  const oauth = client()
-  const { tokens } = await oauth.getToken({ code, redirect_uri: googleConfig().callbackUrl })
+  const oauth = oauthClient(config)
+  const { tokens } = await oauth.getToken({ code, redirect_uri: config.callbackUrl })
   if (!tokens?.id_token) throw new Error('Google did not return an ID token.')
 
-  const ticket = await oauth.verifyIdToken({ idToken: tokens.id_token, audience: clientId })
+  const ticket = await oauth.verifyIdToken({
+    idToken: tokens.id_token,
+    audience: config.clientId,
+  })
   const payload = ticket.getPayload()
   if (!payload) throw new Error('Google ID token payload was empty.')
 
-  const issuer = payload.iss
-  if (issuer !== 'accounts.google.com' && issuer !== 'https://accounts.google.com') {
-    throw new Error('Unexpected ID token issuer.')
-  }
   if (!payload.sub || !payload.email) throw new Error('Google account is missing an email.')
   if (payload.email_verified !== true) {
     throw new Error('This Google account has no verified email address.')

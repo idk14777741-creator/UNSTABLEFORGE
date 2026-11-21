@@ -1097,7 +1097,7 @@ app.get('/api/auth/google/start', oauthLimit, (req, res) => {
   if (next) res.cookie('uf_oauth_next', next, { ...cookieOptions, maxAge })
   else res.clearCookie('uf_oauth_next', { path: '/' })
 
-  return res.redirect(authorizationUrl({ state }))
+  return res.redirect(authorizationUrl(state))
 })
 
 app.get('/api/auth/google/callback', oauthLimit, async (req, res) => {
