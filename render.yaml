@@ -1,0 +1,67 @@
+# Render Blueprint — one web service (Express API + the built Vite app) and one
+# managed PostgreSQL database. Import this repo in Render and it reads this file.
+#
+# Custom domain: add it on the service in the Render dashboard, point the DNS
+# record Render shows you at it, and set APP_URL below to that final https URL
+# (it is used for Google OAuth callbacks and canonical links).
+#
+# Free plan notes: the web service sleeps after 15 idle minutes and takes about
+# a minute to wake, and the free database expires 30 days after creation. For a
+# live event with real registrations, move both to a paid plan.
+
+services:
+  - type: web
+    name: unstable-forge
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.1
+      # Generated once by Render; changing it signs every session out.
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: APP_URL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: unstable-forge-db
+          property: connectionString
+      - key: PGSSLMODE
+        value: require
+      # Uploads are written here. Without a paid disk this directory is replaced
+      # on every deploy, so hold event photographs elsewhere or add a disk.
+      - key: MEDIA_DIR
+        value: /tmp/unstable-forge-uploads
+      # Set these in the dashboard when the accounts exist. The app degrades
+      # honestly without them: no email is claimed to be sent, no gateway is
+      # offered, and the Google button stays hidden.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+databases:
+  - name: unstable-forge-db
+    plan: free
+    databaseName: unstableforge
+    user: forge
