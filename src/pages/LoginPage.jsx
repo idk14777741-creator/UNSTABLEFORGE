@@ -118,7 +118,9 @@ export default function LoginPage() {
         <p className="auth-banner auth-banner--warning" role="status">
           {googleError === 'cancelled'
             ? 'GOOGLE SIGN-IN WAS CANCELLED.'
-            : 'GOOGLE SIGN-IN COULD NOT BE COMPLETED. TRY AGAIN.'}
+            : googleError === 'unverified_link'
+              ? 'AN ACCOUNT WITH THIS EMAIL ALREADY EXISTS. SIGN IN WITH YOUR PASSWORD TO CONTINUE.'
+              : 'GOOGLE SIGN-IN COULD NOT BE COMPLETED. TRY AGAIN.'}
         </p>
       )}
 
@@ -173,6 +175,10 @@ export default function LoginPage() {
           <span>{submitting ? 'OPENING THE FORGE…' : 'ENTER THE FORGE'}</span>
           <span aria-hidden="true">{submitting ? '···' : '→'}</span>
         </button>
+
+        <div className="auth-switch" style={{ marginTop: 0 }}>
+          <Link to="/forgot-password">FORGOT YOUR PASSWORD?</Link>
+        </div>
       </form>
 
       <GoogleAuthButton next={next} />

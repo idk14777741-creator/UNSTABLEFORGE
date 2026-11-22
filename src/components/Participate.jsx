@@ -19,8 +19,8 @@ export default function Participate({ onOpenRegistration }) {
             <em className="serif">YOUR MOVE.</em>
           </h2>
           <p className="participate__copy" data-reveal style={{ '--reveal-delay': '100ms' }}>
-            C³ is designed for students across ALTA campuses. Registration is open; event
-            dates, venue, final eligibility and team rules are still being confirmed.
+            C³ is open to students across ALTA campuses. Register a team of one to four, pay
+            ₹300 once as captain, and every teammate receives their own entry pass.
           </p>
 
           <div className="participate__status" data-reveal style={{ '--reveal-delay': '160ms' }}>
@@ -36,8 +36,8 @@ export default function Participate({ onOpenRegistration }) {
           </div>
 
           <p className="participate__note">
-            Register with a participant account. Event logistics and final rules remain TBA
-            until the organizers publish them.
+            Register with a participant account. ₹1,50,000 is at stake across a field of 120
+            participants.
           </p>
         </div>
 
@@ -84,7 +84,7 @@ export default function Participate({ onOpenRegistration }) {
           </dl>
 
           <div className="entry-pass__foot">
-            <span>FINAL DETAILS SUBJECT TO ORGANIZER CONFIRMATION.</span>
+            <span>TEAMS OF 1–4 · ₹300 PER TEAM.</span>
             <Link to="/register">
               OPEN THE REGISTRATION DESK <span aria-hidden="true">↗</span>
             </Link>

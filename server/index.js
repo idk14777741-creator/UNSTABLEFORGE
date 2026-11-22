@@ -28,6 +28,7 @@ const {
   consumeExchange,
 } = await import('./oauth.js')
 const { rateLimit } = await import('./rate-limit.js')
+const { sendMail, verificationEmail, resetEmail, mailConfig } = await import('./mail.js')
 const { registerPlatformRoutes, registerMediaRoot, claimParticipations } = await import(
   './platform/routes.js'
 )
@@ -62,7 +63,16 @@ app.disable('x-powered-by')
 // are served back from /media.
 registerMediaRoot(app, { db })
 
-app.use(express.json({ limit: '100kb' }))
+// `rawBody` is kept because gateway webhook signatures are computed over the
+// exact received bytes, not over a re-serialised object.
+app.use(
+  express.json({
+    limit: '100kb',
+    verify: (req, res, buffer) => {
+      req.rawBody = buffer.toString('utf8')
+    },
+  }),
+)
 
 /**
  * PostgreSQL and SQLite are both reached through an async driver, so every
@@ -563,8 +573,15 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function validateSignup(input) {
   const errors = {}
+  const fullName =
+    typeof input.fullName === 'string' ? input.fullName.trim().replace(/\s+/g, ' ') : ''
   const email = typeof input.email === 'string' ? input.email.trim().toLowerCase() : ''
   const password = typeof input.password === 'string' ? input.password : ''
+
+  if (!fullName) errors.fullName = 'Full name is required.'
+  else if (fullName.length < 2 || fullName.length > 120) {
+    errors.fullName = 'Enter your full name (2–120 characters).'
+  }
 
   if (!email) {
     errors.email = 'Email is required.'
@@ -582,7 +599,67 @@ function validateSignup(input) {
     errors.password = 'Password must include at least one letter and one number.'
   }
 
-  return { email, password, errors }
+  return { fullName, email, password, errors }
+}
+
+const TOKEN_HOUR = 60 * 60 * 1000
+
+function hashAuthToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex')
+}
+
+/** Issues one single-use token per purpose, stored only as a hash. */
+async function issueAuthToken(userId, purpose, ttlMs) {
+  const token = crypto.randomBytes(32).toString('base64url')
+  await db.run('DELETE FROM auth_tokens WHERE user_id = ? AND purpose = ? AND used_at IS NULL', [
+    userId,
+    purpose,
+  ])
+  await db.run(
+    'INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at) VALUES (?, ?, ?, ?)',
+    [userId, purpose, hashAuthToken(token), new Date(Date.now() + ttlMs).toISOString()],
+  )
+  return token
+}
+
+/** Marks a token used and returns its row, or null when it is invalid/expired. */
+async function consumeAuthToken(token, purpose) {
+  if (typeof token !== 'string' || token.length < 20) return null
+  const row = await db.get('SELECT * FROM auth_tokens WHERE token_hash = ? AND purpose = ?', [
+    hashAuthToken(token),
+    purpose,
+  ])
+  if (!row || row.used_at) return null
+  if (new Date(row.expires_at).getTime() <= Date.now()) return null
+
+  await db.run('UPDATE auth_tokens SET used_at = ? WHERE id = ?', [
+    new Date().toISOString(),
+    row.id,
+  ])
+  return row
+}
+
+function passwordProblem(password) {
+  if (!password) return 'Password is required.'
+  if (password.length < 8) return 'Password must be at least 8 characters.'
+  if (password.length > 128) return 'Password must be 128 characters or fewer.'
+  if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+    return 'Password must include at least one letter and one number.'
+  }
+  return null
+}
+
+async function deliverVerification(user) {
+  if (!mailConfig().enabled) return false
+  try {
+    const token = await issueAuthToken(user.id, 'verify_email', 24 * TOKEN_HOUR)
+    const url = `${mailConfig().appUrl}/verify-email?token=${encodeURIComponent(token)}`
+    await sendMail({ to: user.email, ...verificationEmail({ name: user.display_name, url }) })
+    return true
+  } catch (error) {
+    console.error('[auth] verification email was not delivered:', error.code || error.message)
+    return false
+  }
 }
 
 // ---------------------------------------------------------------- public API
@@ -1012,7 +1089,12 @@ function safeNextPath(value) {
 }
 
 function publicUser(user) {
-  return { id: user.id, email: user.email, role: user.role }
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    displayName: user.display_name ?? null,
+  }
 }
 
 /**
@@ -1047,6 +1129,18 @@ async function findOrCreateGoogleUser(profile) {
     )
     if (alreadyLinked) {
       throw new Error('This account is already linked to a different Google account.')
+    }
+
+    // An email match may only claim an account whose address was independently
+    // verified. Otherwise anybody could register a victim's address with a
+    // password first, and the victim's Google sign-in would land in that
+    // attacker-controlled account, leaving the password as an entry point.
+    if (!existing.email_verified_at) {
+      const error = new Error(
+        'An account with this email already exists. Sign in with your password to keep using it.',
+      )
+      error.code = 'EMAIL_NOT_VERIFIED'
+      throw error
     }
 
     await db.run(
@@ -1156,7 +1250,7 @@ app.get('/api/auth/google/callback', oauthLimit, async (req, res) => {
   } catch (error) {
     // No token, no email, no account details in the log.
     console.error('[auth] Google sign-in rejected:', error.message)
-    return backToLogin('failed')
+    return backToLogin(error.code === 'EMAIL_NOT_VERIFIED' ? 'unverified_link' : 'failed')
   }
 })
 
@@ -1195,7 +1289,13 @@ app.post('/api/auth/login', authLimit, async (req, res) => {
   return res.json({
     token,
     expiresAt,
-    user: { id: user.id, email: user.email, role: user.role },
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      displayName: user.display_name ?? null,
+      emailVerified: Boolean(user.email_verified_at),
+    },
   })
 })
 
@@ -1208,11 +1308,18 @@ app.get('/api/auth/me', (req, res) => {
       error: { code: 'UNAUTHORIZED', message: 'The session is invalid or has expired.' },
     })
   }
-  return res.json({ user: { id: claims.sub, email: claims.email, role: claims.role } })
+  return res.json({
+    user: {
+      id: claims.sub,
+      email: claims.email,
+      role: claims.role,
+      displayName: claims.name ?? null,
+    },
+  })
 })
 
 app.post('/api/auth/signup', authLimit, async (req, res) => {
-  const { email, password, errors } = validateSignup(req.body || {})
+  const { fullName, email, password, errors } = validateSignup(req.body || {})
 
   if (Object.keys(errors).length) {
     return res.status(400).json({
@@ -1233,12 +1340,19 @@ app.post('/api/auth/signup', authLimit, async (req, res) => {
 
   try {
     const result = await db.run(
-      'INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
-      [email, hashPassword(password), 'participant', new Date().toISOString()],
+      'INSERT INTO users (email, password_hash, role, created_at, display_name) VALUES (?, ?, ?, ?, ?)',
+      [email, hashPassword(password), 'participant', new Date().toISOString(), fullName],
     )
 
+    const verificationSent = await deliverVerification({
+      id: result.id,
+      email,
+      display_name: fullName,
+    })
+
     return res.status(201).json({
-      user: { id: result.id, email, role: 'participant' },
+      user: { id: result.id, email, role: 'participant', displayName: fullName },
+      emailVerification: { required: true, sent: verificationSent },
     })
   } catch (error) {
     if (isUniqueViolation(error)) {
@@ -1252,6 +1366,164 @@ app.post('/api/auth/signup', authLimit, async (req, res) => {
     }
     throw error
   }
+})
+
+// -------------------------------------------------- email verification & reset
+
+const accountLimit = rateLimit({ name: 'account-email', windowMs: 60 * 60 * 1000, max: 10 })
+
+app.get('/api/auth/email/status', requireAuth, async (req, res) => {
+  const user = await db.get('SELECT email, email_verified_at FROM users WHERE id = ?', [
+    Number(req.user.sub),
+  ])
+  if (!user) {
+    return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Account not found.' } })
+  }
+
+  res.set('Cache-Control', 'private, no-store')
+  return res.json({
+    data: {
+      email: user.email,
+      verified: Boolean(user.email_verified_at),
+      deliveryConfigured: mailConfig().enabled,
+    },
+  })
+})
+
+app.post('/api/auth/verify-email/request', requireAuth, accountLimit, async (req, res) => {
+  const user = await db.get('SELECT id, email, display_name, email_verified_at FROM users WHERE id = ?', [
+    Number(req.user.sub),
+  ])
+  if (!user) {
+    return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Account not found.' } })
+  }
+  if (user.email_verified_at) {
+    return res.json({ data: { verified: true, sent: false } })
+  }
+  if (!mailConfig().enabled) {
+    return res.status(503).json({
+      error: {
+        code: 'EMAIL_NOT_CONFIGURED',
+        message:
+          'Email delivery is not configured on this deployment, so no verification message was sent.',
+      },
+    })
+  }
+
+  const sent = await deliverVerification(user)
+  if (!sent) {
+    return res.status(502).json({
+      error: {
+        code: 'EMAIL_SEND_FAILED',
+        message: 'The verification email could not be sent. Try again shortly.',
+      },
+    })
+  }
+
+  return res.status(202).json({ data: { verified: false, sent: true } })
+})
+
+app.post('/api/auth/verify-email/confirm', authLimit, async (req, res) => {
+  const row = await consumeAuthToken(req.body?.token, 'verify_email')
+  if (!row) {
+    return res.status(400).json({
+      error: {
+        code: 'TOKEN_INVALID',
+        message: 'That verification link is invalid, has expired or has already been used.',
+      },
+    })
+  }
+
+  await db.run(
+    'UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?), updated_at = ? WHERE id = ?',
+    [new Date().toISOString(), new Date().toISOString(), row.user_id],
+  )
+
+  // A verified address may now claim participation records created for it.
+  const user = await db.get('SELECT id, email FROM users WHERE id = ?', [row.user_id])
+  let claimed = 0
+  try {
+    claimed = await claimParticipations(db, user)
+  } catch (error) {
+    console.error('[auth] participation claim after verification failed:', error.message)
+  }
+
+  return res.json({ data: { verified: true, claimed } })
+})
+
+app.post('/api/auth/forgot-password', accountLimit, async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+  if (!email) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: 'Enter the email address on your account.' },
+    })
+  }
+
+  if (!mailConfig().enabled) {
+    return res.status(503).json({
+      error: {
+        code: 'EMAIL_NOT_CONFIGURED',
+        message:
+          'Email delivery is not configured on this deployment, so no reset message was sent.',
+      },
+    })
+  }
+
+  const user = await db.get('SELECT id, email, display_name FROM users WHERE lower(email) = lower(?)', [
+    email,
+  ])
+
+  // The response is identical whether or not the address exists, so the
+  // endpoint cannot be used to enumerate accounts.
+  if (user) {
+    try {
+      const token = await issueAuthToken(user.id, 'reset_password', 30 * 60 * 1000)
+      const url = `${mailConfig().appUrl}/reset-password?token=${encodeURIComponent(token)}`
+      await sendMail({ to: user.email, ...resetEmail({ name: user.display_name, url }) })
+    } catch (error) {
+      console.error('[auth] reset email was not delivered:', error.code || error.message)
+      return res.status(502).json({
+        error: {
+          code: 'EMAIL_SEND_FAILED',
+          message: 'The reset email could not be sent. Try again shortly.',
+        },
+      })
+    }
+  }
+
+  return res.status(202).json({ data: { sent: true } })
+})
+
+app.post('/api/auth/reset-password', authLimit, async (req, res) => {
+  const password = typeof req.body?.password === 'string' ? req.body.password : ''
+  const problem = passwordProblem(password)
+  if (problem) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION_ERROR', message: problem, fields: { password: problem } },
+    })
+  }
+
+  const row = await consumeAuthToken(req.body?.token, 'reset_password')
+  if (!row) {
+    return res.status(400).json({
+      error: {
+        code: 'TOKEN_INVALID',
+        message: 'That reset link is invalid, has expired or has already been used.',
+      },
+    })
+  }
+
+  await db.run('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', [
+    hashPassword(password),
+    new Date().toISOString(),
+    row.user_id,
+  ])
+  await db.run('DELETE FROM auth_tokens WHERE user_id = ? AND used_at IS NULL AND id <> ?', [
+    row.user_id,
+    row.id,
+  ])
+
+  return res.json({ data: { reset: true } })
 })
 
 app.get('/api/admin/announcements', requireOrganizer, async (req, res) => {

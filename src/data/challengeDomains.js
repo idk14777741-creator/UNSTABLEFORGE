@@ -1,8 +1,13 @@
 /**
  * Challenge domains shown in the constellation.
  *
- * These are areas of possibility, not official problem statements. Adding an
- * entry is enough to add a node — the constellation lays out every entry.
+ * These are areas of possibility, not official problem statements.
+ *
+ * Fallback only: the brief now loads the C³ domains from the event API, so the
+ * `event_domains` rows are the source of truth and the constellation and the
+ * brief cannot drift. This list mirrors the seeded rows (same titles, same
+ * order, same notes) and is used only when that API cannot be reached. Keep it
+ * in step with `C3_DOMAINS` in `server/platform/seed.js`.
  */
 export const challengeDomains = [
   {
@@ -59,11 +64,6 @@ export const challengeDomains = [
     id: 'healthcare',
     name: 'HealthCare',
     note: 'Care that reaches further and waits less.',
-  },
-  {
-    id: 'and-more',
-    name: 'And more',
-    note: 'The field is open. Other domains are welcome.',
   },
 ]
 

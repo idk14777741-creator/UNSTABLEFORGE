@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from '../lib/router'
 import { apiGet } from '../lib/api'
+import DomainConstellation from '../components/DomainConstellation'
 import '../platform.css'
 
 const STATUS_LABEL = {
@@ -22,7 +23,7 @@ const TYPE_LABEL = {
 }
 
 function formatDate(value) {
-  if (!value) return 'TO BE ANNOUNCED'
+  if (!value) return null
   return new Date(value).toLocaleString('en-IN', {
     day: 'numeric',
     month: 'short',
@@ -213,6 +214,14 @@ export default function EventPage({ slug }) {
           ← THE UNIVERSE
         </Link>
 
+        {event.heroUrl && (
+          <img
+            className="pf-event-hero"
+            src={event.heroUrl}
+            alt={`${event.title} — event artwork`}
+          />
+        )}
+
         <div className="pf-hero" style={{ marginTop: '24px' }}>
           <div>
             <p className="pf-event__type">
@@ -224,14 +233,20 @@ export default function EventPage({ slug }) {
           </div>
 
           <div className="pf-facts">
-            <p className="pf-fact">
-              <span>Date</span>
-              <span>{formatDate(event.startsAt)}</span>
-            </p>
-            <p className="pf-fact">
-              <span>Venue</span>
-              <span>{event.venue || 'TO BE ANNOUNCED'}</span>
-            </p>
+            {/* A date or venue that has not been confirmed is omitted rather
+                than printed as a placeholder. */}
+            {formatDate(event.startsAt) && (
+              <p className="pf-fact">
+                <span>Date</span>
+                <span>{formatDate(event.startsAt)}</span>
+              </p>
+            )}
+            {event.venue && (
+              <p className="pf-fact">
+                <span>Venue</span>
+                <span>{event.venue}</span>
+              </p>
+            )}
             {settings && (
               <>
                 <p className="pf-fact">
@@ -291,13 +306,12 @@ export default function EventPage({ slug }) {
         )}
 
         {content.domains?.length > 0 && (
-          <Section title="Challenge domains" note="CHOOSE YOUR GROUND" id="domains">
-            <Cards
-              items={content.domains}
-              label={(index) => `DOMAIN ${String(index + 1).padStart(2, '0')}`}
-              getTitle={(item) => item.title}
-              getCopy={(item) => item.description}
-            />
+          <Section
+            title="Challenge domains"
+            note={`${String(content.domains.length).padStart(2, '0')} CONNECTED DOMAINS`}
+            id="domains"
+          >
+            <DomainConstellation domains={content.domains} eventTitle={event.title} />
           </Section>
         )}
 
@@ -347,11 +361,15 @@ export default function EventPage({ slug }) {
                   <span className="pf-rule__index">{String(index + 1).padStart(2, '0')}</span>
                   <div>
                     <h3 className="pf-rule__title">{session.title}</h3>
-                    <p className="pf-rule__body">
-                      {[session.speakerName, session.startsAt ? formatDate(session.startsAt) : null, session.venue]
-                        .filter(Boolean)
-                        .join(' · ') || 'Timing to be announced.'}
-                    </p>
+                    {[session.speakerName, formatDate(session.startsAt), session.venue].filter(
+                      Boolean,
+                    ).length > 0 && (
+                      <p className="pf-rule__body">
+                        {[session.speakerName, formatDate(session.startsAt), session.venue]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}

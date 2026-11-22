@@ -179,10 +179,10 @@ export function AuthProvider({ children }) {
     [applySession],
   )
 
-  const signup = useCallback(async (email, password) => {
+  const signup = useCallback(async (fullName, email, password) => {
     const body = await apiRequest('/api/auth/signup', {
       method: 'POST',
-      body: { email, password },
+      body: { fullName, email, password },
     })
     return body.user
   }, [])

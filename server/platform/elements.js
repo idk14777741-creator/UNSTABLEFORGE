@@ -91,6 +91,7 @@ export function serializeSettings(row, usage = {}) {
     closesAt: row.closes_at,
     isPaid: Boolean(row.is_paid),
     feeMinor: row.fee_minor,
+    feeUnit: row.fee_unit,
     feeLabel: `₹${(row.fee_minor / 100).toLocaleString('en-IN')}`,
     currency: row.currency,
     capacity,

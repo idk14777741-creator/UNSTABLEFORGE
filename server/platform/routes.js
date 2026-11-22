@@ -29,6 +29,14 @@ import {
   serializeSettings,
 } from './elements.js'
 import { renderCertificatePdf } from './pdf.js'
+import { mailConfig } from '../mail.js'
+import {
+  createOrder,
+  fetchPayment,
+  razorpayConfig,
+  verifyPaymentSignature,
+  verifyWebhookSignature,
+} from '../payments.js'
 
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 const IMAGE_EXTENSIONS = {
@@ -124,9 +132,106 @@ export function registerPlatformRoutes(app, { db }) {
 
   const organizer = [requireOrganizer, requireGrant]
 
+  /**
+   * Confirms a gateway payment exactly once and issues every team pass.
+   * Called by the browser-success route after signature + status verification,
+   * and by the webhook after signature verification. Both paths share the same
+   * lock, so a captured payment can never confirm a registration twice.
+   */
+  async function confirmGatewayPayment(
+    paymentId,
+    { providerPaymentId, providerSignature = null, payload = null, amountMinor = null },
+  ) {
+    return db.withTransaction(async (trx) => {
+      await trx.get('SELECT id FROM payments WHERE id = ? FOR UPDATE', [paymentId])
+      const payment = await trx.get('SELECT * FROM payments WHERE id = ?', [paymentId])
+      if (!payment) throw fail(404, 'NOT_FOUND', 'Payment not found.')
+
+      if (payment.status === 'verified') {
+        return { alreadyConfirmed: true, payment, registrations: [] }
+      }
+      if (payment.status === 'refunded') {
+        throw fail(409, 'PAYMENT_REFUNDED', 'This payment has already been refunded.')
+      }
+      if (amountMinor !== null && Number(amountMinor) !== Number(payment.amount_minor)) {
+        throw fail(409, 'AMOUNT_MISMATCH', 'The gateway amount does not match the order.')
+      }
+      if (
+        payment.provider_payment_id &&
+        providerPaymentId &&
+        payment.provider_payment_id !== providerPaymentId
+      ) {
+        throw fail(409, 'PAYMENT_CONFLICT', 'A different payment is already recorded for this order.')
+      }
+
+      await trx.run(
+        `UPDATE payments
+            SET status = 'verified', provider = 'razorpay', provider_payment_id = ?,
+                provider_signature = ?, provider_payload = ?, paid_at = ?, verified_at = ?,
+                rejection_reason = NULL, updated_at = ?
+          WHERE id = ?`,
+        [
+          providerPaymentId || null,
+          providerSignature,
+          payload === null ? null : JSON.stringify(payload),
+          now(),
+          now(),
+          now(),
+          payment.id,
+        ],
+      )
+
+      await trx.run(
+        `UPDATE registrations
+            SET status = 'confirmed', hold_expires_at = NULL, confirmed_at = ?, updated_at = ?
+          WHERE payment_id = ?
+            AND status IN ('pending_payment', 'payment_submitted', 'verification_pending', 'rejected')`,
+        [now(), now(), payment.id],
+      )
+
+      const registrations = await trx.all(
+        'SELECT id, event_id FROM registrations WHERE payment_id = ? ORDER BY id',
+        [payment.id],
+      )
+      for (const registration of registrations) {
+        await ensurePass(trx, registration)
+      }
+
+      return { alreadyConfirmed: false, payment, registrations }
+    })
+  }
+
+  /**
+   * Records a payment the gateway has accepted but not captured. Nothing is
+   * confirmed: this only makes the pending payment visible, so a second
+   * checkout cannot be opened for the same seat while the first is still
+   * capturable. Confirmation still happens exclusively on capture.
+   */
+  async function recordAuthorizedPayment(paymentId, remote) {
+    await db.run(
+      `UPDATE payments
+          SET provider = 'razorpay',
+              provider_payment_id = COALESCE(provider_payment_id, ?),
+              provider_payload = ?, updated_at = ?
+        WHERE id = ? AND status <> 'verified'`,
+      [remote.id, JSON.stringify(remote), now(), paymentId],
+    )
+  }
+
+  async function platformSettings() {
+    const row = await db.get('SELECT * FROM platform_settings WHERE id = 1')
+    return { eventDiscoveryEnabled: row ? row.event_discovery_enabled !== false : true }
+  }
+
   // ------------------------------------------------------------------- events
 
   app.get('/api/events', platform, async (req, res) => {
+    // Discovery is a platform-wide switch, separate from each event's own
+    // publication state. Turning it off hides the list; nothing is deleted.
+    if (!(await platformSettings()).eventDiscoveryEnabled) {
+      return res.json({ data: [], meta: { discovery: false } })
+    }
+
     const scope = ['upcoming', 'past', 'all'].includes(req.query.scope) ? req.query.scope : 'upcoming'
     const lifecycleFilter =
       scope === 'past'
@@ -142,7 +247,10 @@ export function registerPlatformRoutes(app, { db }) {
       eventParams(),
     )
 
-    res.json({ data: rows.map((row) => ({ ...serializeEvent(row), seatsTaken: Number(row.seats_taken) })) })
+    res.json({
+      data: rows.map((row) => ({ ...serializeEvent(row), seatsTaken: Number(row.seats_taken) })),
+      meta: { discovery: true },
+    })
   })
 
   app.get('/api/events/:slug', platform, async (req, res) => {
@@ -415,6 +523,7 @@ export function registerPlatformRoutes(app, { db }) {
 
     const body = req.body || {}
     const members = validateMembers(body, settings, req.user.email)
+    const customFields = await validateCustomFields(db, eventRow.id, body.customFields)
     const teamName =
       members.length > 1 || settings.registration_mode !== 'individual'
         ? clean(body.teamName, 80) || `${members[0].fullName}`
@@ -511,7 +620,7 @@ export function registerPlatformRoutes(app, { db }) {
             status,
             settings.is_paid ? holdUntil : null,
             settings.is_paid ? null : now(),
-            JSON.stringify(body.customFields ?? {}),
+            JSON.stringify(customFields),
             now(),
           ],
         )
@@ -520,6 +629,12 @@ export function registerPlatformRoutes(app, { db }) {
           `UF-${eventRow.id}-${String(inserted.id).padStart(5, '0')}`,
           inserted.id,
         ])
+
+        // A free registration is confirmed immediately, so it gets its entry
+        // pass at registration time. Paid events issue passes on verification.
+        if (!settings.is_paid) {
+          await ensurePass(trx, { id: inserted.id, event_id: eventRow.id })
+        }
 
         created.push({ id: inserted.id, reference: `UF-${eventRow.id}-${String(inserted.id).padStart(5, '0')}` })
       }
@@ -709,6 +824,268 @@ export function registerPlatformRoutes(app, { db }) {
     res.json({ data: { reference: registration.reference, status: 'verification_pending' } })
   })
 
+  // ----------------------------------------------------- gateway checkout (UPI/cards)
+
+  const gatewayLimit = rateLimit({ name: 'payment-gateway', windowMs: 60_000, max: 30 })
+
+  async function openPayment(reference, userId) {
+    const registration = await db.get('SELECT * FROM registrations WHERE reference = ?', [reference])
+    if (!registration) {
+      return { error: 404, code: 'NOT_FOUND', message: 'Registration not found.' }
+    }
+
+    const participant = await db.get('SELECT user_id FROM participants WHERE id = ?', [
+      registration.participant_id,
+    ])
+    if (!participant || participant.user_id !== Number(userId)) {
+      return { error: 403, code: 'FORBIDDEN', message: 'This registration belongs to another participant.' }
+    }
+    if (!registration.payment_id) {
+      return { error: 409, code: 'NO_PAYMENT', message: 'This registration does not require a payment.' }
+    }
+    if (!['pending_payment', 'rejected'].includes(registration.status)) {
+      return {
+        error: 409,
+        code: 'INVALID_STATE',
+        message: 'This registration is not waiting for a payment.',
+      }
+    }
+
+    const payment = await db.get('SELECT * FROM payments WHERE id = ?', [registration.payment_id])
+    if (!payment) {
+      return { error: 409, code: 'NO_PAYMENT', message: 'No payment is attached to this registration.' }
+    }
+
+    return { registration, payment }
+  }
+
+  app.post('/api/registrations/:reference/payment/order', platform, requireAuth, gatewayLimit, async (req, res) => {
+    const opened = await openPayment(req.params.reference, req.user.sub)
+    if (opened.error) {
+      return res
+        .status(opened.error)
+        .json({ error: { code: opened.code, message: opened.message } })
+    }
+
+    const config = razorpayConfig()
+    if (!config.enabled) {
+      return res.status(503).json({
+        error: {
+          code: 'PAYMENT_NOT_CONFIGURED',
+          message:
+            'The payment gateway is not configured on this deployment. An organizer can still verify a UPI payment manually.',
+        },
+      })
+    }
+
+    const { registration, payment } = opened
+
+    // Razorpay keeps an order payable while its payments are only authorised,
+    // so opening checkout again here could charge the captain a second time for
+    // the same seat. The first payment must resolve before another is started.
+    if (payment.provider_payment_id) {
+      return res.status(409).json({
+        error: {
+          code: 'PAYMENT_IN_PROGRESS',
+          message:
+            'A payment for this registration is already authorised and awaiting capture. Do not pay again — it is confirmed automatically once the gateway captures it.',
+        },
+      })
+    }
+
+    let orderId = payment.provider_order_id
+
+    // Reuse an open order so a page refresh does not create duplicate orders.
+    if (!orderId) {
+      const order = await createOrder({
+        amountMinor: payment.amount_minor,
+        currency: payment.currency,
+        receipt: registration.reference,
+        notes: { reference: registration.reference, eventId: String(registration.event_id) },
+      })
+      orderId = order.id
+
+      await db.run(
+        `UPDATE payments
+            SET provider = 'razorpay', provider_order_id = ?, provider_payload = ?, updated_at = ?
+          WHERE id = ?`,
+        [orderId, JSON.stringify(order), now(), payment.id],
+      )
+
+      await audit(db, req, {
+        action: 'payment.order.create',
+        entityType: 'payment',
+        entityId: payment.id,
+        eventId: registration.event_id,
+        metadata: { orderId, amountMinor: payment.amount_minor },
+      })
+    }
+
+    res.json({
+      data: {
+        keyId: config.keyId,
+        orderId,
+        amountMinor: payment.amount_minor,
+        currency: payment.currency,
+        reference: registration.reference,
+        mode: config.mode,
+        methods: config.methods,
+        eventTitle: (await db.get('SELECT name FROM events WHERE id = ?', [registration.event_id]))?.name,
+      },
+    })
+  })
+
+  app.post(
+    '/api/registrations/:reference/payment/verify',
+    platform,
+    requireAuth,
+    gatewayLimit,
+    async (req, res) => {
+      const opened = await openPayment(req.params.reference, req.user.sub)
+      if (opened.error) {
+        // A repeated callback after a successful confirmation is not an error.
+        if (opened.code === 'INVALID_STATE') {
+          const current = await db.get('SELECT status FROM registrations WHERE reference = ?', [
+            req.params.reference,
+          ])
+          if (current?.status === 'confirmed') {
+            return res.json({ data: { status: 'confirmed', confirmed: true } })
+          }
+        }
+        return res
+          .status(opened.error)
+          .json({ error: { code: opened.code, message: opened.message } })
+      }
+
+      const { orderId, paymentId, signature } = {
+        orderId: String(req.body?.razorpay_order_id || ''),
+        paymentId: String(req.body?.razorpay_payment_id || ''),
+        signature: String(req.body?.razorpay_signature || ''),
+      }
+
+      if (!verifyPaymentSignature({ orderId, paymentId, signature })) {
+        return res.status(400).json({
+          error: {
+            code: 'SIGNATURE_INVALID',
+            message: 'The payment signature could not be verified. No registration was confirmed.',
+          },
+        })
+      }
+
+      // The signature proves the callback came from Razorpay. The status and
+      // amount are then read from Razorpay itself, never from the browser.
+      const remote = await fetchPayment(paymentId)
+      if (!remote || remote.order_id !== orderId) {
+        return res.status(400).json({
+          error: { code: 'PAYMENT_MISMATCH', message: 'That payment does not belong to this order.' },
+        })
+      }
+      // Only a captured payment has actually moved money. An `authorized`
+      // payment is still holdable and can be voided or expire, so confirming on
+      // it would issue passes for money the merchant may never receive. The
+      // webhook confirms later, when Razorpay reports the capture.
+      if (remote.status !== 'captured') {
+        await recordAuthorizedPayment(opened.payment.id, remote)
+        return res.status(202).json({
+          data: { status: remote.status, confirmed: false, captured: false },
+        })
+      }
+
+      const result = await confirmGatewayPayment(opened.payment.id, {
+        providerPaymentId: paymentId,
+        providerSignature: signature,
+        payload: remote,
+        amountMinor: Number(remote.amount),
+      })
+
+      await audit(db, req, {
+        action: 'payment.verify',
+        entityType: 'payment',
+        entityId: opened.payment.id,
+        eventId: opened.registration.event_id,
+        metadata: { paymentId, orderId, alreadyConfirmed: result.alreadyConfirmed },
+      })
+
+      res.json({
+        data: {
+          status: 'confirmed',
+          confirmed: true,
+          reference: opened.registration.reference,
+        },
+      })
+    },
+  )
+
+  /**
+   * Razorpay webhook. Public by nature, so the signature over the exact body is
+   * the only thing that makes it trusted. Deliveries are idempotent by event id.
+   */
+  app.post('/api/payments/razorpay/webhook', async (req, res) => {
+    const signature = req.get('x-razorpay-signature') || ''
+    if (!verifyWebhookSignature(req.rawBody, signature)) {
+      return res.status(400).json({ error: { code: 'SIGNATURE_INVALID', message: 'Invalid signature.' } })
+    }
+
+    const body = req.body || {}
+    const entity = body?.payload?.payment?.entity || null
+    const eventKey = String(body.event_id || `${body.event || 'event'}:${entity?.id || ''}`)
+    if (!eventKey || eventKey.endsWith(':')) {
+      return res.status(400).json({ error: { code: 'INVALID_EVENT', message: 'Missing event id.' } })
+    }
+
+    const payment = entity?.order_id
+      ? await db.get('SELECT * FROM payments WHERE provider_order_id = ?', [entity.order_id])
+      : null
+
+    const inserted = await db.run(
+      `INSERT INTO payment_events (provider, event_key, event_type, payment_id, payload)
+       VALUES ('razorpay', ?, ?, ?, ?)
+       ON CONFLICT (event_key) DO NOTHING`,
+      [eventKey, body.event || null, payment?.id ?? null, JSON.stringify(body)],
+    )
+
+    // Already handled: acknowledge without repeating any side effect.
+    if (!inserted.id) return res.json({ received: true, duplicate: true })
+
+    // The event name alone is not proof of capture: the entity's own status is
+    // what the confirmation trusts, so an `authorized` payload delivered under a
+    // capture event cannot confirm a registration.
+    if (payment && body.event === 'payment.captured' && entity?.status === 'captured') {
+      try {
+        await confirmGatewayPayment(payment.id, {
+          providerPaymentId: entity.id,
+          payload: entity,
+          amountMinor: Number(entity.amount),
+        })
+      } catch (error) {
+        console.error('[payments] webhook confirmation failed:', error.message)
+        // A retry from the gateway is safer than acknowledging a failed write.
+        return res.status(500).json({ error: { code: 'CONFIRM_FAILED', message: 'Retry later.' } })
+      }
+    }
+
+    // An authorisation with no capture yet still blocks a second checkout, even
+    // when the browser never reported back.
+    if (payment && body.event === 'payment.authorized' && entity?.status === 'authorized') {
+      await recordAuthorizedPayment(payment.id, entity)
+    }
+
+    if (payment && body.event === 'payment.failed') {
+      await db.run(
+        // The failed attempt releases the hold a new checkout would be blocked
+        // by; an earlier captured payment can never be reached here because of
+        // the status guard.
+        `UPDATE payments
+            SET status = 'rejected', rejection_reason = ?, provider_payload = ?,
+                provider_payment_id = NULL, updated_at = ?
+          WHERE id = ? AND status <> 'verified'`,
+        [entity?.error_description || 'The gateway reported a failed payment.', JSON.stringify(entity), now(), payment.id],
+      )
+    }
+
+    return res.json({ received: true })
+  })
+
   // ------------------------------------------------------------------- passes
 
   app.get('/api/me/passes', platform, requireAuth, async (req, res) => {
@@ -800,6 +1177,58 @@ export function registerPlatformRoutes(app, { db }) {
     })
   })
 
+  // ------------------------------------------------- organizer: platform controls
+
+  app.get('/api/admin/platform/settings', platform, ...organizer, async (req, res) => {
+    const settings = await platformSettings()
+    const gateway = razorpayConfig()
+
+    res.json({
+      data: {
+        ...settings,
+        organizerElevated: req.user.org === true,
+        emailDeliveryConfigured: mailConfig().enabled,
+        payments: {
+          configured: gateway.enabled,
+          mode: gateway.mode,
+          // Only instruments the gateway actually presents are advertised.
+          methods: gateway.enabled ? gateway.methods : [],
+        },
+      },
+    })
+  })
+
+  app.put(
+    '/api/admin/platform/settings',
+    platform,
+    ...organizer,
+    requireElevated,
+    async (req, res) => {
+      if (req.body?.eventDiscoveryEnabled === undefined) {
+        throw fail(400, 'VALIDATION_ERROR', 'Nothing to update.')
+      }
+
+      const enabled = Boolean(req.body.eventDiscoveryEnabled)
+      await db.run(
+        `INSERT INTO platform_settings (id, event_discovery_enabled, updated_by, updated_at)
+         VALUES (1, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE
+           SET event_discovery_enabled = EXCLUDED.event_discovery_enabled,
+               updated_by = EXCLUDED.updated_by,
+               updated_at = EXCLUDED.updated_at`,
+        [enabled, Number(req.user.sub), now()],
+      )
+
+      await audit(db, req, {
+        action: enabled ? 'platform.discovery.enable' : 'platform.discovery.disable',
+        entityType: 'platform_settings',
+        entityId: 1,
+      })
+
+      res.json({ data: { ...(await platformSettings()) } })
+    },
+  )
+
   app.post('/api/admin/events', platform, ...organizer, writingLimit, async (req, res) => {
     const input = validateEventInput(req.body || {}, { partial: false })
     const baseSlug = slugify(input.slug || input.title)
@@ -836,6 +1265,48 @@ export function registerPlatformRoutes(app, { db }) {
     await db.run('INSERT INTO event_registration_settings (event_id) VALUES (?) ON CONFLICT (event_id) DO NOTHING', [
       created.id,
     ])
+
+    // The guided create flow sends the rules it collected, plus an optional
+    // registration configuration. Both are ordinary rows in the existing
+    // content modules — no new frontend page is generated for a new event.
+    const rules = Array.isArray(req.body?.rules) ? req.body.rules : []
+    for (const [index, rule] of rules.entries()) {
+      const title = clean(typeof rule === 'string' ? rule : rule?.title, 160)
+      if (!title) continue
+      await db.run(
+        'INSERT INTO event_rules (event_id, section, title, body, sort_order) VALUES (?, ?, ?, ?, ?)',
+        [created.id, 'rules', title, text(typeof rule === 'string' ? '' : rule?.body) || null, index],
+      )
+    }
+
+    const registration = req.body?.registration
+    if (registration && typeof registration === 'object') {
+      const capacity = Number(registration.capacity)
+      const minTeamSize = Number(registration.minTeamSize)
+      const maxTeamSize = Number(registration.maxTeamSize)
+      const feeMinor = Number(registration.feeMinor)
+      const mode = ['individual', 'team', 'both'].includes(registration.registrationMode)
+        ? registration.registrationMode
+        : 'individual'
+
+      await db.run(
+        `UPDATE event_registration_settings
+            SET enabled = ?, is_paid = ?, fee_minor = ?, capacity = ?,
+                registration_mode = ?, min_team_size = ?, max_team_size = ?, updated_at = ?
+          WHERE event_id = ?`,
+        [
+          Boolean(registration.enabled),
+          Boolean(registration.isPaid),
+          Number.isInteger(feeMinor) && feeMinor >= 0 ? feeMinor : 0,
+          Number.isInteger(capacity) && capacity > 0 ? capacity : null,
+          mode,
+          Number.isInteger(minTeamSize) && minTeamSize >= 1 ? minTeamSize : 1,
+          Number.isInteger(maxTeamSize) && maxTeamSize >= 1 ? maxTeamSize : 1,
+          now(),
+          created.id,
+        ],
+      )
+    }
 
     await audit(db, req, {
       action: 'event.create',
@@ -877,6 +1348,24 @@ export function registerPlatformRoutes(app, { db }) {
       if (input[key] === undefined) continue
       columns.push(`${column} = ?`)
       values.push(input[key] === '' ? null : input[key])
+    }
+
+    for (const [key, column] of [
+      ['coverAssetId', 'cover_asset_id'],
+      ['heroAssetId', 'hero_asset_id'],
+    ]) {
+      if (req.body?.[key] === undefined) continue
+      const assetId = parseId(req.body[key])
+      if (assetId) {
+        const asset = await db.get('SELECT id, event_id FROM media_assets WHERE id = ?', [assetId])
+        if (!asset || Number(asset.event_id) !== Number(id)) {
+          throw fail(400, 'VALIDATION_ERROR', 'That image does not belong to this event.', {
+            [key]: 'Upload the image to this event first.',
+          })
+        }
+      }
+      columns.push(`${column} = ?`)
+      values.push(assetId)
     }
 
     if (!columns.length) {
@@ -1040,6 +1529,98 @@ export function registerPlatformRoutes(app, { db }) {
   })
 
   // ------------------------------------------------------- organizer: content
+
+  app.get('/api/admin/events/:id/content', platform, ...organizer, async (req, res) => {
+    const id = parseId(req.params.id)
+    if (!id) throw fail(400, 'VALIDATION_ERROR', 'Invalid event id.')
+
+    const row = await db.get(`${EVENT_SELECT} WHERE e.id = ?`, [...eventParams(), id])
+    if (!row) throw fail(404, 'NOT_FOUND', 'Event not found.')
+
+    const [domains, topics, rules, criteria, faqs, speakers, sessions, registrationFields, media] =
+      await Promise.all([
+        db.all('SELECT * FROM event_domains WHERE event_id = ? ORDER BY sort_order, id', [id]),
+        db.all('SELECT * FROM event_topics WHERE event_id = ? ORDER BY sort_order, id', [id]),
+        db.all('SELECT * FROM event_rules WHERE event_id = ? ORDER BY section, sort_order, id', [id]),
+        db.all('SELECT * FROM event_criteria WHERE event_id = ? ORDER BY sort_order, id', [id]),
+        db.all('SELECT * FROM event_faqs WHERE event_id = ? ORDER BY sort_order, id', [id]),
+        db.all(
+          `SELECT s.*, es.sort_order FROM event_speakers es
+             JOIN speakers s ON s.id = es.speaker_id
+            WHERE es.event_id = ? ORDER BY es.sort_order, s.id`,
+          [id],
+        ),
+        db.all(
+          `SELECT s.* FROM event_sessions s
+            WHERE s.event_id = ? ORDER BY s.sort_order, s.starts_at NULLS LAST, s.id`,
+          [id],
+        ),
+        db.all('SELECT * FROM event_registration_fields WHERE event_id = ? ORDER BY sort_order, id', [id]),
+        db.all('SELECT * FROM media_assets WHERE event_id = ? ORDER BY sort_order, id', [id]),
+      ])
+
+    res.json({
+      data: {
+        event: serializeEvent(row),
+        content: {
+          domains: domains.map((item) => ({ id: item.id, title: item.title, description: item.description })),
+          topics: topics.map((item) => ({ id: item.id, title: item.title, description: item.description })),
+          rules: rules.map((item) => ({
+            id: item.id,
+            section: item.section,
+            title: item.title,
+            body: item.body,
+          })),
+          criteria: criteria.map((item) => ({
+            id: item.id,
+            title: item.title,
+            description: item.description,
+            weight: item.weight,
+          })),
+          faqs: faqs.map((item) => ({
+            id: item.id,
+            question: item.question,
+            answer: item.answer,
+            isPublished: Boolean(item.is_published),
+          })),
+        },
+        speakers: speakers.map((item) => ({
+          id: item.id,
+          name: item.name,
+          title: item.title,
+          organization: item.organization,
+          bio: item.bio,
+          profileUrl: item.profile_url,
+        })),
+        sessions: sessions.map((item) => ({
+          id: item.id,
+          title: item.title,
+          description: item.description,
+          speakerId: item.speaker_id,
+          startsAt: item.starts_at,
+          endsAt: item.ends_at,
+          venue: item.venue,
+          sortOrder: item.sort_order,
+        })),
+        registrationFields: registrationFields.map((item) => ({
+          id: item.id,
+          key: item.field_key,
+          label: item.label,
+          type: item.field_type,
+          options: item.options,
+          required: Boolean(item.is_required),
+          sortOrder: item.sort_order,
+        })),
+        media: media.map((item) => ({
+          id: item.id,
+          url: item.url,
+          caption: item.caption,
+          placement: item.placement,
+          isPublished: Boolean(item.is_published),
+        })),
+      },
+    })
+  })
 
   for (const kind of Object.keys(CONTENT_KINDS)) {
     app.post(`/api/admin/events/:id/content/${kind}`, platform, ...organizer, async (req, res) => {
@@ -1213,6 +1794,101 @@ export function registerPlatformRoutes(app, { db }) {
 
   app.delete('/api/admin/sessions/:id', platform, ...organizer, async (req, res) => {
     await db.run('DELETE FROM event_sessions WHERE id = ?', [parseId(req.params.id)])
+    res.status(204).end()
+  })
+
+  // ------------------------------------------ organizer: registration fields
+
+  const FIELD_TYPES = ['text', 'textarea', 'select', 'number', 'email', 'phone']
+
+  const normalizeOptions = (raw) => {
+    const list = Array.isArray(raw) ? raw : String(raw || '').split(',')
+    return list.map((option) => clean(option, 80)).filter(Boolean).slice(0, 20)
+  }
+
+  app.post('/api/admin/events/:id/fields', platform, ...organizer, async (req, res) => {
+    const eventId = parseId(req.params.id)
+    if (!eventId) throw fail(400, 'VALIDATION_ERROR', 'Invalid event id.')
+
+    const label = clean(req.body?.label, 120)
+    const key =
+      clean(req.body?.key, 40).toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
+      label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
+    const type = FIELD_TYPES.includes(req.body?.type) ? req.body.type : 'text'
+    const options = normalizeOptions(req.body?.options)
+
+    if (label.length < 2 || !/^[a-z][a-z0-9_]{0,39}$/.test(key)) {
+      throw fail(400, 'VALIDATION_ERROR', 'Give the field a label and a lowercase key.', {
+        label: label.length < 2 ? 'A label is required.' : undefined,
+        key: /^[a-z][a-z0-9_]{0,39}$/.test(key) ? undefined : 'Use a lowercase key such as shirt_size.',
+      })
+    }
+    if (type === 'select' && !options.length) {
+      throw fail(400, 'VALIDATION_ERROR', 'A select field needs at least one option.', {
+        options: 'List the options, separated by commas.',
+      })
+    }
+
+    const created = await db.run(
+      `INSERT INTO event_registration_fields
+         (event_id, field_key, label, field_type, options, is_required, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        eventId,
+        key,
+        label,
+        type,
+        JSON.stringify(options),
+        Boolean(req.body?.required),
+        Number(req.body?.sortOrder ?? 0) || 0,
+      ],
+    )
+
+    await audit(db, req, {
+      action: 'registration_field.create',
+      entityType: 'event_registration_field',
+      entityId: created.id,
+      eventId,
+    })
+
+    res.status(201).json({ data: { id: created.id, key, label, type, options } })
+  })
+
+  app.patch('/api/admin/fields/:id', platform, ...organizer, async (req, res) => {
+    const id = parseId(req.params.id)
+    if (!id) throw fail(400, 'VALIDATION_ERROR', 'Invalid field id.')
+
+    const mapping = { label: 'label', type: 'field_type', required: 'is_required', sortOrder: 'sort_order' }
+    const columns = []
+    const values = []
+    for (const [key, column] of Object.entries(mapping)) {
+      if (req.body?.[key] === undefined) continue
+      columns.push(`${column} = ?`)
+      values.push(
+        key === 'sortOrder'
+          ? Number(req.body[key]) || 0
+          : key === 'required'
+            ? Boolean(req.body[key])
+            : clean(req.body[key], 120),
+      )
+    }
+    if (req.body?.options !== undefined) {
+      columns.push('options = ?')
+      values.push(JSON.stringify(normalizeOptions(req.body.options)))
+    }
+    if (!columns.length) throw fail(400, 'VALIDATION_ERROR', 'Nothing to update.')
+
+    await db.run(`UPDATE event_registration_fields SET ${columns.join(', ')} WHERE id = ?`, [
+      ...values,
+      id,
+    ])
+    res.json({ data: { id } })
+  })
+
+  app.delete('/api/admin/fields/:id', platform, ...organizer, async (req, res) => {
+    const id = parseId(req.params.id)
+    if (!id) throw fail(400, 'VALIDATION_ERROR', 'Invalid field id.')
+    await db.run('DELETE FROM event_registration_fields WHERE id = ?', [id])
     res.status(204).end()
   })
 
@@ -1977,6 +2653,53 @@ function ensureRegistrationWindow(eventRow, settings) {
   if (settings.closes_at && new Date(settings.closes_at).getTime() < at) {
     throw fail(409, 'REGISTRATION_CLOSED', 'Registration has closed for this event.')
   }
+}
+
+async function validateCustomFields(db, eventId, raw) {
+  const definitions = await db.all(
+    `SELECT field_key, label, field_type, options, is_required
+       FROM event_registration_fields WHERE event_id = ? ORDER BY sort_order, id`,
+    [eventId],
+  )
+  if (!definitions.length) return {}
+
+  const supplied = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  const errors = {}
+  const values = {}
+
+  for (const definition of definitions) {
+    const value = supplied[definition.field_key]
+    const text_ = value === undefined || value === null ? '' : String(value).trim()
+    const errorKey = `customFields.${definition.field_key}`
+
+    if (!text_) {
+      if (definition.is_required) errors[errorKey] = `${definition.label} is required.`
+      continue
+    }
+    if (text_.length > 2000) {
+      errors[errorKey] = `${definition.label} is too long.`
+      continue
+    }
+    if (definition.field_type === 'number' && !Number.isFinite(Number(text_))) {
+      errors[errorKey] = `${definition.label} must be a number.`
+      continue
+    }
+    if (definition.field_type === 'select') {
+      const options = Array.isArray(definition.options) ? definition.options.map(String) : []
+      if (!options.includes(text_)) {
+        errors[errorKey] = `Choose one of the listed options for ${definition.label}.`
+        continue
+      }
+    }
+
+    values[definition.field_key] = text_
+  }
+
+  if (Object.keys(errors).length) {
+    throw fail(400, 'VALIDATION_ERROR', 'Check the additional registration questions.', errors)
+  }
+
+  return values
 }
 
 function validateMembers(body, settings, accountEmail) {

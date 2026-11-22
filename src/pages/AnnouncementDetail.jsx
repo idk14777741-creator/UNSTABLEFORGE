@@ -147,7 +147,7 @@ export default function AnnouncementDetail({ slug }) {
             <span>READ / {readingTime(announcement.content)} MIN</span>
             <span className="ann-detail-rail__line" aria-hidden="true" />
             <span className="ann-detail-rail__note">
-              Published by the C³ organizers. Unconfirmed details remain marked as TBA.
+              Published by the C³ organizers. Event details live on the C³ event page.
             </span>
           </aside>
 

@@ -12,6 +12,7 @@ export default function SignupPage() {
   const { signup } = useAuth()
   const next = safeNext(new URLSearchParams(search).get('next'))
 
+  const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -29,6 +30,12 @@ export default function SignupPage() {
   const validate = () => {
     const errors = {}
     const trimmed = email.trim()
+    const name = fullName.trim().replace(/\s+/g, ' ')
+
+    if (!name) errors.fullName = 'Full name is required.'
+    else if (name.length < 2 || name.length > 120) {
+      errors.fullName = 'Enter your full name (2–120 characters).'
+    }
 
     if (!trimmed) errors.email = 'Email is required.'
     else if (!EMAIL_PATTERN.test(trimmed)) errors.email = 'Enter a valid email address.'
@@ -54,7 +61,7 @@ export default function SignupPage() {
 
     setSubmitting(true)
     try {
-      await signup(email.trim(), password)
+      await signup(fullName.trim().replace(/\s+/g, ' '), email.trim(), password)
       const params = new URLSearchParams({ registered: '1', email: email.trim().toLowerCase() })
       if (next) params.set('next', next)
       navigate(`/login?${params.toString()}`, { replace: true })
@@ -90,6 +97,30 @@ export default function SignupPage() {
       )}
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
+        <div className={`auth-field ${fieldErrors.fullName ? 'has-error' : ''}`}>
+          <label className="auth-field__label" htmlFor="signup-name">
+            <span>FULL NAME</span>
+          </label>
+          <div className="auth-field__control">
+            <input
+              id="signup-name"
+              name="fullName"
+              type="text"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+              autoComplete="name"
+              maxLength={120}
+              aria-invalid={fieldErrors.fullName ? 'true' : undefined}
+              aria-describedby={fieldErrors.fullName ? 'signup-name-error' : undefined}
+            />
+          </div>
+          {fieldErrors.fullName && (
+            <p className="auth-field__error" id="signup-name-error" role="alert">
+              {fieldErrors.fullName}
+            </p>
+          )}
+        </div>
+
         <div className={`auth-field ${fieldErrors.email ? 'has-error' : ''}`}>
           <label className="auth-field__label" htmlFor="signup-email">
             <span>EMAIL</span>
@@ -155,8 +186,9 @@ export default function SignupPage() {
       </div>
 
       <p className="auth-fineprint">
-        New accounts are participants. Organizer and admin access are assigned by the
-        platform, never selected on this form.
+        New accounts are participants. A verification link is emailed to the address you
+        enter. Organizer and admin access are assigned by the platform, never selected on
+        this form.
       </p>
     </AuthLayout>
   )

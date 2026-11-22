@@ -10,6 +10,10 @@ import AnnouncementsPage from './pages/AnnouncementsPage'
 import AnnouncementDetail from './pages/AnnouncementDetail'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
+import OrganizerModePage from './pages/OrganizerModePage'
 import RegisterPage from './pages/RegisterPage'
 import ProjectsPage from './pages/ProjectsPage'
 import ProjectDetail from './pages/ProjectDetail'
@@ -143,6 +147,10 @@ export default function App() {
   const isAnnouncements = pathname === '/announcements'
   const isLogin = pathname === '/login'
   const isSignup = pathname === '/signup'
+  const isForgot = pathname === '/forgot-password'
+  const isReset = pathname === '/reset-password'
+  const isVerifyEmail = pathname === '/verify-email'
+  const isOrganizerMode = pathname === '/organizer'
   const isRegister = pathname === '/register'
   const isProjects = pathname === '/projects'
   const isEvents = pathname === '/events'
@@ -156,7 +164,7 @@ export default function App() {
   const isAdminRegistrations = pathname === '/admin/registrations'
   const isAdminProjects = pathname === '/admin/projects'
   const isAdminPlatform = pathname === '/admin/platform'
-  const isAuthPage = isLogin || isSignup
+  const isAuthPage = isLogin || isSignup || isForgot || isReset || isVerifyEmail
   const isKnownRoute =
     isHome ||
     isBrief ||
@@ -164,6 +172,10 @@ export default function App() {
     Boolean(detailMatch) ||
     isLogin ||
     isSignup ||
+    isForgot ||
+    isReset ||
+    isVerifyEmail ||
+    isOrganizerMode ||
     isRegister ||
     isProjects ||
     isEvents ||
@@ -211,6 +223,18 @@ export default function App() {
         <GuestOnly>
           <SignupPage />
         </GuestOnly>
+      )}
+
+      {isForgot && <ForgotPasswordPage />}
+
+      {isReset && <ResetPasswordPage />}
+
+      {isVerifyEmail && <VerifyEmailPage />}
+
+      {isOrganizerMode && (
+        <RequireAuth>
+          <OrganizerModePage />
+        </RequireAuth>
       )}
 
       {isRegister && (

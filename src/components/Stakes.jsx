@@ -18,14 +18,14 @@ export default function Stakes() {
             <em className="serif">AT STAKE.</em>
           </h2>
           <p className="stakes__intro" data-reveal style={{ '--reveal-delay': '100ms' }}>
-            The prize and recognition structure is still being confirmed. Amounts, sponsor
-            commitments, and award categories have not been announced — so none are shown here.
+            C³ carries a prize pool of ₹1,50,000. Award categories and how the pool is split
+            have not been published, so no breakdown is claimed here.
           </p>
 
           <div className="stakes__facts" data-reveal style={{ '--reveal-delay': '160ms' }}>
-            <span>PRIZE POOL / TBA</span>
-            <span>SPONSORS / TBA</span>
-            <span>AWARDS / TBA</span>
+            <span>PRIZE POOL / ₹1,50,000</span>
+            <span>ENTRY / ₹300 PER TEAM</span>
+            <span>FIELD / 120 PARTICIPANTS</span>
           </div>
         </div>
 
@@ -38,16 +38,16 @@ export default function Stakes() {
           <div className="seal__cross seal__cross--top" aria-hidden="true" />
           <div className="seal__cross seal__cross--bottom" aria-hidden="true" />
           <div className="seal__inner">
-            <span className="seal__kicker">PRIZE DETAILS COMING SOON</span>
-            <strong className="seal__tba">TBA</strong>
-            <span className="seal__note">AMOUNTS · SPONSORS · AWARDS</span>
+            <span className="seal__kicker">PRIZE POOL / CONFIRMED</span>
+            <strong className="seal__amount">₹1,50,000</strong>
+            <span className="seal__note">AT STAKE ACROSS C³</span>
           </div>
         </div>
       </div>
 
       <div className="container">
         <p className="stakes__disclaimer">
-          NO PRIZE AMOUNTS, SPONSOR COMMITMENTS, OR AWARD CATEGORIES HAVE BEEN CONFIRMED.
+          ₹1,50,000 IS THE CONFIRMED PRIZE POOL. AWARD CATEGORIES ARE NOT PUBLISHED.
         </p>
       </div>
     </section>

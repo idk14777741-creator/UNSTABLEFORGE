@@ -51,7 +51,10 @@ const C3 = 'c3-crescent-code-clash'
 async function signup(label) {
   const email = uniqueEmail(label)
   const password = 'forgePlatform1'
-  const result = await call('/api/auth/signup', { method: 'POST', body: { email, password } })
+  const result = await call('/api/auth/signup', {
+    method: 'POST',
+    body: { fullName: `Platform ${label}`, email, password },
+  })
   const login = await call('/api/auth/login', { method: 'POST', body: { email, password } })
   return { email, password, token: login.body?.token, signup: result }
 }
@@ -360,6 +363,23 @@ async function main() {
   })
   check('a two-person team fits in three places', two.status === 201, JSON.stringify(two.body))
 
+  // Free events are confirmed immediately, so the entry pass must exist at
+  // registration time — never only after an organizer touches the record.
+  const freeDetail = await call(`/api/registrations/${two.body?.data?.reference}`, {
+    token: probeSignup.token,
+  })
+  check(
+    'a free registration issues its pass immediately',
+    Boolean(freeDetail.body?.data?.pass?.token),
+    JSON.stringify(freeDetail.body?.data?.pass),
+  )
+
+  const freePasses = await call('/api/me/passes', { token: probeSignup.token })
+  check(
+    'the free pass appears in the participant pass list',
+    (freePasses.body?.data || []).some((pass) => pass.reference === two.body?.data?.reference),
+  )
+
   const secondTeam = await signup('platform.capacity2')
   const overflow = await call(`/api/events/${probe?.slug}/register`, {
     method: 'POST',
@@ -427,6 +447,136 @@ async function main() {
     'organizer actions are audited',
     (audit.body?.data || []).some((entry) => entry.action === 'payment.verify'),
   )
+
+  console.log('\nAccount email and password recovery')
+
+  const missingName = await call('/api/auth/signup', {
+    method: 'POST',
+    body: { email: uniqueEmail('platform.noname'), password: 'forgePlatform1' },
+  })
+  check(
+    'signup requires a full name',
+    missingName.status === 400 && Boolean(missingName.body?.error?.fields?.fullName),
+  )
+
+  const forgot = await call('/api/auth/forgot-password', {
+    method: 'POST',
+    body: { email: captain.email },
+  })
+  check(
+    'password reset either queues mail or reports that delivery is not configured',
+    forgot.status === 202 ||
+      (forgot.status === 503 && forgot.body?.error?.code === 'EMAIL_NOT_CONFIGURED'),
+    JSON.stringify(forgot.body),
+  )
+
+  const badReset = await call('/api/auth/reset-password', {
+    method: 'POST',
+    body: { token: 'x'.repeat(48), password: 'anotherPassword1' },
+  })
+  check(
+    'an invalid reset token is rejected',
+    badReset.status === 400 && badReset.body?.error?.code === 'TOKEN_INVALID',
+  )
+
+  console.log('\nOrganizer platform controls')
+
+  const notElevatedDiscovery = await call('/api/admin/platform/settings', {
+    method: 'PUT',
+    token: organizerToken,
+    body: { eventDiscoveryEnabled: false },
+  })
+  check(
+    'the discovery switch needs the organizer access code',
+    notElevatedDiscovery.status === 403,
+  )
+
+  const platformBefore = await call('/api/admin/platform/settings', { token: elevatedToken })
+  check(
+    'the console reports gateway and email configuration honestly',
+    platformBefore.status === 200 &&
+      typeof platformBefore.body?.data?.payments?.configured === 'boolean' &&
+      typeof platformBefore.body?.data?.emailDeliveryConfigured === 'boolean',
+    JSON.stringify(platformBefore.body),
+  )
+
+  const discoveryOff = await call('/api/admin/platform/settings', {
+    method: 'PUT',
+    token: elevatedToken,
+    body: { eventDiscoveryEnabled: false },
+  })
+  check(
+    'an elevated organizer can hide event discovery',
+    discoveryOff.status === 200 && discoveryOff.body?.data?.eventDiscoveryEnabled === false,
+  )
+
+  const hiddenList = await call('/api/events')
+  check(
+    'hidden discovery returns no events without deleting them',
+    hiddenList.status === 200 &&
+      (hiddenList.body?.data || []).length === 0 &&
+      hiddenList.body?.meta?.discovery === false,
+  )
+
+  const stillInAdmin = await call('/api/admin/events', { token: elevatedToken })
+  check(
+    'hidden discovery keeps the event records in the console',
+    (stillInAdmin.body?.data || []).some((event) => event.slug === C3),
+  )
+
+  const discoveryOn = await call('/api/admin/platform/settings', {
+    method: 'PUT',
+    token: elevatedToken,
+    body: { eventDiscoveryEnabled: true },
+  })
+  const visibleAgain = await call('/api/events')
+  check(
+    're-enabling discovery restores the published list',
+    discoveryOn.status === 200 &&
+      (visibleAgain.body?.data || []).some((event) => event.slug === C3),
+  )
+
+  console.log('\nGuided event creation')
+
+  const guided = await call('/api/admin/events', {
+    method: 'POST',
+    token: elevatedToken,
+    body: {
+      title: `Guided Probe ${crypto.randomBytes(2).toString('hex')}`,
+      type: 'seminar',
+      shortDescription: 'Temporary guided event created by the test suite.',
+      rules: ['One rule per line', 'Second rule'],
+      registration: {
+        enabled: true,
+        isPaid: false,
+        capacity: 20,
+        registrationMode: 'individual',
+        minTeamSize: 1,
+        maxTeamSize: 1,
+      },
+    },
+  })
+  check('a minimal event can be created with rules', guided.status === 201, JSON.stringify(guided.body))
+
+  const guidedContent = await call(`/api/admin/events/${guided.body?.data?.id}/content`, {
+    token: elevatedToken,
+  })
+  check(
+    'the rules supplied at creation are stored',
+    (guidedContent.body?.data?.content?.rules || []).length === 2,
+  )
+
+  await call(`/api/admin/events/${guided.body?.data?.id}/lifecycle`, {
+    method: 'POST',
+    token: elevatedToken,
+    body: { lifecycle: 'archived' },
+  })
+
+  const unsignedWebhook = await call('/api/payments/razorpay/webhook', {
+    method: 'POST',
+    body: { event: 'payment.captured' },
+  })
+  check('an unsigned payment webhook is rejected', unsignedWebhook.status === 400)
 
   console.log(`\n${passed} passed, ${failed} failed\n`)
   if (failed > 0) process.exitCode = 1

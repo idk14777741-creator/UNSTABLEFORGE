@@ -60,7 +60,7 @@ export default function FinalCta({ onOpenRegistration }) {
             REGISTRATION IS OPEN
           </p>
           <p className="final__footnote">
-            EVENT DATES, VENUE, FORMAT AND FINAL ELIGIBILITY REMAIN TBA.
+            ₹1,50,000 AT STAKE · ₹300 PER TEAM · TEAMS OF 1–4.
           </p>
         </div>
       </div>

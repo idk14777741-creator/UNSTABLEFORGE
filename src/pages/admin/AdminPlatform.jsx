@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from '../../lib/router'
 import { apiRequest } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
+import { readElevated, saveElevated } from '../../lib/organizer'
 import '../../platform.css'
 
 /**
@@ -14,6 +15,7 @@ import '../../platform.css'
 
 const TABS = [
   { id: 'events', label: 'Events' },
+  { id: 'content', label: 'Content' },
   { id: 'payments', label: 'Payments' },
   { id: 'checkin', label: 'Check-in' },
   { id: 'certificates', label: 'Certificates' },
@@ -58,7 +60,7 @@ function ElevationBar({ token, onElevated }) {
         body: { code },
       })
       setCode('')
-      onElevated(payload.data.token)
+      onElevated(payload.data)
       setMessage('Verified. Sensitive actions are unlocked for this session.')
     } catch (error) {
       setMessage(error.message)
@@ -235,11 +237,126 @@ function EventSettings({ event, token, onSaved }) {
   )
 }
 
+function PlatformControls({ token, elevatedToken }) {
+  const [status, setStatus] = useState(null)
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    const payload = await apiRequest('/api/admin/platform/settings', { token })
+    setStatus(payload.data)
+  }, [token])
+
+  useEffect(() => {
+    load().catch((error) => setMessage(error.message))
+  }, [load])
+
+  const toggle = async () => {
+    if (!status) return
+    setBusy(true)
+    setMessage('')
+    try {
+      const payload = await apiRequest('/api/admin/platform/settings', {
+        method: 'PUT',
+        token: elevatedToken || token,
+        body: { eventDiscoveryEnabled: !status.eventDiscoveryEnabled },
+      })
+      setStatus({ ...status, ...payload.data })
+      setMessage(
+        payload.data.eventDiscoveryEnabled
+          ? 'Event discovery is ON. Published events are listed again.'
+          : 'Event discovery is OFF. Events, registrations and passes are untouched.',
+      )
+    } catch (error) {
+      setMessage(
+        `${error.message}${error.status === 403 ? ' — verify your access code above.' : ''}`,
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!status) return <p className="pf-row__meta">{message || 'LOADING PLATFORM CONTROLS…'}</p>
+
+  return (
+    <section className="pf-panel" style={{ marginBottom: '28px' }}>
+      <div className="pf-controls">
+        <div className="pf-control">
+          <span className="pf-control__label">EVENT DISCOVERY</span>
+          <strong className="pf-control__value">
+            {status.eventDiscoveryEnabled ? 'VISIBLE' : 'HIDDEN'}
+          </strong>
+          <span className="pf-row__meta">
+            Hiding discovery never deletes events, registrations, passes or attendance.
+          </span>
+          <button type="button" className="pf-btn" onClick={toggle} disabled={busy}>
+            {busy ? 'SAVING…' : status.eventDiscoveryEnabled ? 'HIDE DISCOVERY' : 'ENABLE DISCOVERY'}
+          </button>
+        </div>
+
+        <div className="pf-control">
+          <span className="pf-control__label">PAYMENTS</span>
+          <strong className="pf-control__value">
+            {status.payments.configured
+              ? `GATEWAY · ${status.payments.mode.toUpperCase()}`
+              : 'GATEWAY NOT CONFIGURED'}
+          </strong>
+          <span className="pf-row__meta">
+            {status.payments.configured
+              ? status.payments.methods.join(' · ')
+              : 'Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to enable checkout.'}
+          </span>
+        </div>
+
+        <div className="pf-control">
+          <span className="pf-control__label">EMAIL DELIVERY</span>
+          <strong className="pf-control__value">
+            {status.emailDeliveryConfigured ? 'CONFIGURED' : 'NOT CONFIGURED'}
+          </strong>
+          <span className="pf-row__meta">
+            {status.emailDeliveryConfigured
+              ? 'Verification and reset messages are sent through the provider.'
+              : 'Set RESEND_API_KEY and EMAIL_FROM to send verification and reset mail.'}
+          </span>
+        </div>
+      </div>
+      {message && <p className="pf-row__meta">{message}</p>}
+    </section>
+  )
+}
+
+const LIFECYCLE_OPTIONS = [
+  'draft',
+  'upcoming',
+  'registration_open',
+  'registration_closed',
+  'ongoing',
+  'completed',
+  'archived',
+]
+
+const EMPTY_EVENT = {
+  title: '',
+  type: 'hackathon',
+  shortDescription: '',
+  description: '',
+  rules: '',
+  venue: '',
+  startsAt: '',
+  isPaid: false,
+  fee: '',
+  capacity: '',
+  registrationMode: 'individual',
+  minTeamSize: 1,
+  maxTeamSize: 1,
+}
+
 function EventsTab({ token, elevatedToken }) {
   const [events, setEvents] = useState([])
   const [message, setMessage] = useState('')
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ title: '', type: 'hackathon', shortDescription: '' })
+  const [advanced, setAdvanced] = useState(false)
+  const [form, setForm] = useState(EMPTY_EVENT)
 
   const reload = useCallback(async () => {
     const payload = await apiRequest('/api/admin/events', { token })
@@ -260,14 +377,54 @@ function EventsTab({ token, elevatedToken }) {
     }
   }
 
-  const create = async (event) => {
-    event.preventDefault()
+  const create = async (submitEvent) => {
+    submitEvent.preventDefault()
     setMessage('')
+
+    if (form.title.trim().length < 3) {
+      setMessage('Give the event a name of at least three characters.')
+      return
+    }
+    if (form.shortDescription.trim().length < 10) {
+      setMessage('Add a short description so participants know what the event is.')
+      return
+    }
+    const rules = form.rules
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+    if (!rules.length) {
+      setMessage('Add at least one rule, one per line.')
+      return
+    }
+
     try {
-      await apiRequest('/api/admin/events', { method: 'POST', token, body: form })
-      setForm({ title: '', type: 'hackathon', shortDescription: '' })
+      await apiRequest('/api/admin/events', {
+        method: 'POST',
+        token,
+        body: {
+          title: form.title.trim(),
+          type: form.type,
+          shortDescription: form.shortDescription.trim(),
+          description: form.description.trim() || undefined,
+          venue: form.venue.trim() || undefined,
+          startsAt: form.startsAt || undefined,
+          rules,
+          registration: {
+            enabled: false,
+            isPaid: form.isPaid,
+            feeMinor: form.isPaid ? Math.round(Number(form.fee || 0) * 100) : 0,
+            capacity: form.capacity === '' ? null : Number(form.capacity),
+            registrationMode: form.registrationMode,
+            minTeamSize: Number(form.minTeamSize) || 1,
+            maxTeamSize: Number(form.maxTeamSize) || 1,
+          },
+        },
+      })
+      setForm(EMPTY_EVENT)
+      setAdvanced(false)
       await reload()
-      setMessage('Event created as a draft. Configure it, then publish when it is ready.')
+      setMessage('Event created as a draft. Open it, add content, then publish when ready.')
     } catch (error) {
       setMessage(error.message)
     }
@@ -276,13 +433,38 @@ function EventsTab({ token, elevatedToken }) {
   return (
     <>
       <form className="pf-form" onSubmit={create}>
+        <div className="pf-form__head">
+          <span className="pf-control__label">NEW EVENT</span>
+          <span className="pf-row__meta">NAME · SHORT DESCRIPTION · RULES ARE ENOUGH TO START</span>
+        </div>
         <label className="pf-field">
-          <span>New event title</span>
+          <span>Event name</span>
           <input
             value={form.title}
             onChange={(changeEvent) => setForm({ ...form, title: changeEvent.target.value })}
             required
             minLength={3}
+            maxLength={160}
+          />
+        </label>
+        <label className="pf-field">
+          <span>Short description</span>
+          <textarea
+            rows={2}
+            maxLength={400}
+            value={form.shortDescription}
+            onChange={(changeEvent) => setForm({ ...form, shortDescription: changeEvent.target.value })}
+            required
+          />
+        </label>
+        <label className="pf-field">
+          <span>Rules — one per line</span>
+          <textarea
+            rows={4}
+            value={form.rules}
+            onChange={(changeEvent) => setForm({ ...form, rules: changeEvent.target.value })}
+            placeholder={'Teams of one to four\nOriginal work built during the event\nOne submission per team'}
+            required
           />
         </label>
         <label className="pf-field">
@@ -298,13 +480,94 @@ function EventsTab({ token, elevatedToken }) {
             ))}
           </select>
         </label>
-        <label className="pf-field">
-          <span>Short description</span>
-          <input
-            value={form.shortDescription}
-            onChange={(changeEvent) => setForm({ ...form, shortDescription: changeEvent.target.value })}
-          />
-        </label>
+
+        <details
+          className="pf-advanced"
+          open={advanced}
+          onToggle={(toggleEvent) => setAdvanced(toggleEvent.currentTarget.open)}
+        >
+          <summary>ADVANCED CONFIGURATION (OPTIONAL)</summary>
+          <div className="pf-advanced__body">
+            <label className="pf-field">
+              <span>Full description</span>
+              <textarea
+                rows={3}
+                value={form.description}
+                onChange={(changeEvent) => setForm({ ...form, description: changeEvent.target.value })}
+              />
+            </label>
+            <label className="pf-field">
+              <span>Date and time</span>
+              <input
+                type="datetime-local"
+                value={form.startsAt}
+                onChange={(changeEvent) => setForm({ ...form, startsAt: changeEvent.target.value })}
+              />
+            </label>
+            <label className="pf-field">
+              <span>Venue</span>
+              <input
+                value={form.venue}
+                onChange={(changeEvent) => setForm({ ...form, venue: changeEvent.target.value })}
+                maxLength={200}
+              />
+            </label>
+            <label className="pf-field">
+              <span>Registration mode</span>
+              <select
+                value={form.registrationMode}
+                onChange={(changeEvent) => setForm({ ...form, registrationMode: changeEvent.target.value })}
+              >
+                <option value="individual">Individual</option>
+                <option value="team">Team</option>
+                <option value="both">Both</option>
+              </select>
+            </label>
+            <label className="pf-field">
+              <span>Minimum team size</span>
+              <input
+                type="number"
+                min="1"
+                value={form.minTeamSize}
+                onChange={(changeEvent) => setForm({ ...form, minTeamSize: changeEvent.target.value })}
+              />
+            </label>
+            <label className="pf-field">
+              <span>Maximum team size</span>
+              <input
+                type="number"
+                min="1"
+                value={form.maxTeamSize}
+                onChange={(changeEvent) => setForm({ ...form, maxTeamSize: changeEvent.target.value })}
+              />
+            </label>
+            <label className="pf-field">
+              <span>Participant capacity (blank = unlimited)</span>
+              <input
+                type="number"
+                min="1"
+                value={form.capacity}
+                onChange={(changeEvent) => setForm({ ...form, capacity: changeEvent.target.value })}
+              />
+            </label>
+            <label className="pf-field">
+              <span>Entry fee (₹ per team, 0 = free)</span>
+              <input
+                type="number"
+                min="0"
+                value={form.fee}
+                onChange={(changeEvent) =>
+                  setForm({
+                    ...form,
+                    fee: changeEvent.target.value,
+                    isPaid: Number(changeEvent.target.value) > 0,
+                  })
+                }
+              />
+            </label>
+          </div>
+        </details>
+
         <div className="pf-actions">
           <button type="submit" className="pf-btn">
             CREATE DRAFT
@@ -345,6 +608,24 @@ function EventsTab({ token, elevatedToken }) {
               >
                 CONFIGURE
               </button>
+              <label className="pf-mini-select">
+                <span className="pf-row__meta">LIFECYCLE</span>
+                <select
+                  value={event.lifecycle}
+                  onChange={(changeEvent) =>
+                    call(`/api/admin/events/${event.id}/lifecycle`, {
+                      method: 'POST',
+                      body: { lifecycle: changeEvent.target.value },
+                    })
+                  }
+                >
+                  {LIFECYCLE_OPTIONS.map((lifecycle) => (
+                    <option key={lifecycle} value={lifecycle}>
+                      {lifecycle.replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 type="button"
                 className="pf-btn pf-btn--ghost"
@@ -643,6 +924,8 @@ function CertificatesTab({ token }) {
   const [onlyAttended, setOnlyAttended] = useState(true)
   const [issued, setIssued] = useState([])
   const [message, setMessage] = useState('')
+  const [participants, setParticipants] = useState([])
+  const [ranks, setRanks] = useState({})
 
   useEffect(() => {
     apiRequest('/api/admin/events', { token })
@@ -653,14 +936,26 @@ function CertificatesTab({ token }) {
       .catch((error) => setMessage(error.message))
   }, [token])
 
+  useEffect(() => {
+    if (kind !== 'rank' || !eventId) return
+    apiRequest(`/api/admin/events/${eventId}/registrations`, { token })
+      .then((payload) => setParticipants(payload.data.filter((row) => row.status === 'confirmed')))
+      .catch((error) => setMessage(error.message))
+  }, [kind, eventId, token])
+
   const issue = async (event) => {
     event.preventDefault()
     setMessage('')
     try {
+      const rankPositions = Object.fromEntries(
+        Object.entries(ranks)
+          .filter(([, value]) => Number(value) > 0)
+          .map(([registrationId, value]) => [registrationId, Number(value)]),
+      )
       const payload = await apiRequest('/api/admin/certificates/issue', {
         method: 'POST',
         token,
-        body: { eventId: Number(eventId), title, kind, onlyAttended },
+        body: { eventId: Number(eventId), title, kind, onlyAttended, rankPositions },
       })
       setIssued(payload.data)
       setMessage(`${payload.data.length} certificate(s) issued.`)
@@ -718,6 +1013,36 @@ function CertificatesTab({ token }) {
             <option value="confirmed">Every confirmed registration</option>
           </select>
         </label>
+        {kind === 'rank' && (
+          <div style={{ gridColumn: '1 / -1' }}>
+            <p className="pf-row__meta">Set each participant's rank position. Leave blank for no rank.</p>
+            {participants.length === 0 && <p className="pf-empty">NO CONFIRMED PARTICIPANTS.</p>}
+            <div className="pf-rows">
+              {participants.map((participant) => (
+                <div className="pf-row" key={participant.id}>
+                  <span>
+                    <h3 className="pf-row__title">{participant.fullName}</h3>
+                    <span className="pf-row__meta">
+                      {participant.reference}
+                      {participant.teamName ? ` · ${participant.teamName}` : ''}
+                    </span>
+                  </span>
+                  <label className="pf-field" style={{ margin: 0, minWidth: '140px' }}>
+                    <span>Rank position</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={ranks[participant.id] ?? ''}
+                      onChange={(changeEvent) =>
+                        setRanks((current) => ({ ...current, [participant.id]: changeEvent.target.value }))
+                      }
+                    />
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="pf-actions">
           <button type="submit" className="pf-btn">
             ISSUE CERTIFICATES
@@ -881,10 +1206,822 @@ function GlimpseTab({ token }) {
   )
 }
 
+const CONTENT_SECTIONS = {
+  domains: {
+    label: 'Challenge domains',
+    hint: 'Each domain becomes a numbered card on the event page.',
+    titleKey: 'title',
+    fields: [
+      { key: 'title', label: 'Title', required: true },
+      { key: 'description', label: 'Description', type: 'textarea' },
+    ],
+  },
+  topics: {
+    label: 'Topics / motions',
+    hint: 'Used by debate events; harmless on any other event.',
+    titleKey: 'title',
+    fields: [
+      { key: 'title', label: 'Title', required: true },
+      { key: 'description', label: 'Description', type: 'textarea' },
+    ],
+  },
+  rules: {
+    label: 'Format & rules',
+    hint: 'Section groups related rules together on the event page.',
+    titleKey: 'title',
+    fields: [
+      { key: 'section', label: 'Section' },
+      { key: 'title', label: 'Title', required: true },
+      { key: 'body', label: 'Body', type: 'textarea' },
+    ],
+  },
+  criteria: {
+    label: 'Judging criteria',
+    hint: 'Weight is optional and shown only in the organizer console.',
+    titleKey: 'title',
+    fields: [
+      { key: 'title', label: 'Title', required: true },
+      { key: 'description', label: 'Description', type: 'textarea' },
+      { key: 'weight', label: 'Weight', type: 'number' },
+    ],
+  },
+  faqs: {
+    label: 'Questions',
+    hint: 'Published answers appear on the public event page.',
+    titleKey: 'question',
+    fields: [
+      { key: 'question', label: 'Question', required: true },
+      { key: 'answer', label: 'Answer', type: 'textarea' },
+    ],
+  },
+}
+
+function ContentInput({ field, value, onChange }) {
+  if (field.type === 'textarea') {
+    return (
+      <textarea
+        rows={3}
+        value={value ?? ''}
+        required={field.required}
+        onChange={(changeEvent) => onChange(changeEvent.target.value)}
+      />
+    )
+  }
+  return (
+    <input
+      type={field.type === 'number' ? 'number' : 'text'}
+      value={value ?? ''}
+      required={field.required}
+      onChange={(changeEvent) => onChange(changeEvent.target.value)}
+    />
+  )
+}
+
+function ContentKindSection({ kind, token, eventId, items, onChanged }) {
+  const spec = CONTENT_SECTIONS[kind]
+  const blank = Object.fromEntries(spec.fields.map((field) => [field.key, field.key === 'section' ? 'rules' : '']))
+  const [draft, setDraft] = useState(blank)
+  const [editingId, setEditingId] = useState(null)
+  const [open, setOpen] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const edit = (item) => {
+    setDraft(Object.fromEntries(spec.fields.map((field) => [field.key, item[field.key] ?? ''])))
+    setEditingId(item.id)
+    setOpen(true)
+    setMessage('')
+  }
+
+  const save = async (submitEvent) => {
+    submitEvent.preventDefault()
+    setMessage('')
+    try {
+      await apiRequest(
+        editingId ? `/api/admin/content/${kind}/${editingId}` : `/api/admin/events/${eventId}/content/${kind}`,
+        { method: editingId ? 'PATCH' : 'POST', token, body: draft },
+      )
+      setOpen(false)
+      setEditingId(null)
+      setDraft(blank)
+      await onChanged()
+      setMessage('Saved.')
+    } catch (error) {
+      setMessage(error.message)
+    }
+  }
+
+  const remove = async (item) => {
+    if (!window.confirm(`Delete "${item[spec.titleKey]}"?`)) return
+    setMessage('')
+    try {
+      await apiRequest(`/api/admin/content/${kind}/${item.id}`, { method: 'DELETE', token })
+      await onChanged()
+    } catch (error) {
+      setMessage(error.message)
+    }
+  }
+
+  return (
+    <section className="pf-panel" style={{ marginTop: '26px' }}>
+      <div className="pf-panel__head">
+        <h2 className="pf-panel__title">{spec.label}</h2>
+        <button
+          type="button"
+          className="pf-btn pf-btn--ghost"
+          onClick={() => {
+            setDraft(blank)
+            setEditingId(null)
+            setOpen((current) => !current)
+            setMessage('')
+          }}
+        >
+          {open ? 'CANCEL' : 'ADD'}
+        </button>
+      </div>
+      <p className="pf-row__meta">{spec.hint}</p>
+
+      {open && (
+        <form className="pf-form" onSubmit={save} style={{ marginTop: '14px' }}>
+          {spec.fields.map((field) => (
+            <label className="pf-field" key={field.key}>
+              <span>{field.label}</span>
+              <ContentInput
+                field={field}
+                value={draft[field.key]}
+                onChange={(value) => setDraft((current) => ({ ...current, [field.key]: value }))}
+              />
+            </label>
+          ))}
+          <div className="pf-actions">
+            <button type="submit" className="pf-btn">
+              {editingId ? 'SAVE CHANGES' : 'ADD'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {message && <p className="pf-row__meta">{message}</p>}
+
+      <div className="pf-rows" style={{ marginTop: '14px' }}>
+        {items.length === 0 && <p className="pf-empty">NOTHING HERE YET.</p>}
+        {items.map((item) => (
+          <div className="pf-row" key={item.id}>
+            <span>
+              <h3 className="pf-row__title">{item[spec.titleKey]}</h3>
+              <span className="pf-row__meta">
+                {item.description || item.body || item.answer || 'NO DESCRIPTION'}
+              </span>
+            </span>
+            <span className="pf-actions" style={{ marginTop: 0 }}>
+              <button type="button" className="pf-btn pf-btn--ghost" onClick={() => edit(item)}>
+                EDIT
+              </button>
+              <button type="button" className="pf-btn pf-btn--ghost" onClick={() => remove(item)}>
+                DELETE
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+const EMPTY_SPEAKER = { name: '', title: '', organization: '', bio: '', profileUrl: '' }
+
+function SpeakersSection({ token, eventId, speakers, onChanged }) {
+  const [draft, setDraft] = useState(EMPTY_SPEAKER)
+  const [editingId, setEditingId] = useState(null)
+  const [open, setOpen] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const edit = (speaker) => {
+    setDraft({
+      name: speaker.name || '',
+      title: speaker.title || '',
+      organization: speaker.organization || '',
+      bio: speaker.bio || '',
+      profileUrl: speaker.profileUrl || '',
+    })
+    setEditingId(speaker.id)
+    setOpen(true)
+    setMessage('')
+  }
+
+  const save = async (submitEvent) => {
+    submitEvent.preventDefault()
+    setMessage('')
+    try {
+      if (editingId) {
+        await apiRequest(`/api/admin/speakers/${editingId}`, { method: 'PATCH', token, body: draft })
+      } else {
+        const created = await apiRequest('/api/admin/speakers', { method: 'POST', token, body: draft })
+        await apiRequest(`/api/admin/events/${eventId}/speakers`, {
+          method: 'POST',
+          token,
+          body: { speakerId: created.data.id },
+        })
+      }
+      setDraft(EMPTY_SPEAKER)
+      setEditingId(null)
+      setOpen(false)
+      await onChanged()
+      setMessage('Saved.')
+    } catch (error) {
+      setMessage(error.message)
+    }
+  }
+
+  const unlink = async (speaker) => {
+    if (!window.confirm(`Remove ${speaker.name} from this event? The speaker record stays available.`)) return
+    setMessage('')
+    try {
+      await apiRequest(`/api/admin/events/${eventId}/speakers/${speaker.id}`, { method: 'DELETE', token })
+      await onChanged()
+    } catch (error) {
+      setMessage(error.message)
+    }
+  }
+
+  return (
+    <section className="pf-panel" style={{ marginTop: '26px' }}>
+      <div className="pf-panel__head">
+        <h2 className="pf-panel__title">Speakers</h2>
+        <button
+          type="button"
+          className="pf-btn pf-btn--ghost"
+          onClick={() => {
+            setDraft(EMPTY_SPEAKER)
+            setEditingId(null)
+            setOpen((current) => !current)
+            setMessage('')
+          }}
+        >
+          {open ? 'CANCEL' : 'ADD'}
+        </button>
+      </div>
+      <p className="pf-row__meta">New speakers are created and attached to this event in one step.</p>
+
+      {open && (
+        <form className="pf-form" onSubmit={save} style={{ marginTop: '14px' }}>
+          <label className="pf-field">
+            <span>Name</span>
+            <input
+              value={draft.name}
+              required
+              minLength={2}
+              onChange={(changeEvent) => setDraft({ ...draft, name: changeEvent.target.value })}
+            />
+          </label>
+          <label className="pf-field">
+            <span>Role / title</span>
+            <input
+              value={draft.title}
+              onChange={(changeEvent) => setDraft({ ...draft, title: changeEvent.target.value })}
+            />
+          </label>
+          <label className="pf-field">
+            <span>Organization</span>
+            <input
+              value={draft.organization}
+              onChange={(changeEvent) => setDraft({ ...draft, organization: changeEvent.target.value })}
+            />
+          </label>
+          <label className="pf-field">
+            <span>Profile URL</span>
+            <input
+              value={draft.profileUrl}
+              onChange={(changeEvent) => setDraft({ ...draft, profileUrl: changeEvent.target.value })}
+            />
+          </label>
+          <label className="pf-field">
+            <span>Short bio</span>
+            <textarea
+              rows={3}
+              value={draft.bio}
+              onChange={(changeEvent) => setDraft({ ...draft, bio: changeEvent.target.value })}
+            />
+          </label>
+          <div className="pf-actions">
+            <button type="submit" className="pf-btn">
+              {editingId ? 'SAVE CHANGES' : 'ADD SPEAKER'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {message && <p className="pf-row__meta">{message}</p>}
+
+      <div className="pf-rows" style={{ marginTop: '14px' }}>
+        {speakers.length === 0 && <p className="pf-empty">NO SPEAKERS YET.</p>}
+        {speakers.map((speaker) => (
+          <div className="pf-row" key={speaker.id}>
+            <span>
+              <h3 className="pf-row__title">{speaker.name}</h3>
+              <span className="pf-row__meta">
+                {[speaker.title, speaker.organization].filter(Boolean).join(' · ') || 'NO DETAILS'}
+              </span>
+            </span>
+            <span className="pf-actions" style={{ marginTop: 0 }}>
+              <button type="button" className="pf-btn pf-btn--ghost" onClick={() => edit(speaker)}>
+                EDIT
+              </button>
+              <button type="button" className="pf-btn pf-btn--ghost" onClick={() => unlink(speaker)}>
+                REMOVE
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+const EMPTY_SESSION = { title: '', description: '', speakerId: '', startsAt: '', endsAt: '', venue: '' }
+
+const toInputTime = (value) => (value ? String(value).slice(0, 16) : '')
+
+function SessionsSection({ token, eventId, sessions, speakers, onChanged }) {
+  const [draft, setDraft] = useState(EMPTY_SESSION)
+  const [editingId, setEditingId] = useState(null)
+  const [open, setOpen] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const edit = (session) => {
+    setDraft({
+      title: session.title || '',
+      description: session.description || '',
+      speakerId: session.speakerId || '',
+      startsAt: toInputTime(session.startsAt),
+      endsAt: toInputTime(session.endsAt),
+      venue: session.venue || '',
+    })
+    setEditingId(session.id)
+    setOpen(true)
+    setMessage('')
+  }
+
+  const save = async (submitEvent) => {
+    submitEvent.preventDefault()
+    setMessage('')
+    try {
+      const body = {
+        ...draft,
+        speakerId: draft.speakerId ? Number(draft.speakerId) : null,
+        startsAt: draft.startsAt || null,
+        endsAt: draft.endsAt || null,
+      }
+      await apiRequest(editingId ? `/api/admin/sessions/${editingId}` : `/api/admin/events/${eventId}/sessions`, {
+        method: editingId ? 'PATCH' : 'POST',
+        token,
+        body,
+      })
+      setDraft(EMPTY_SESSION)
+      setEditingId(null)
+      setOpen(false)
+      await onChanged()
+      setMessage('Saved.')
+    } catch (error) {
+      setMessage(error.message)
+    }
+  }
+
+  const remove = async (session) => {
+    if (!window.confirm(`Delete "${session.title}"?`)) return
+    setMessage('')
+    try {
+      await apiRequest(`/api/admin/sessions/${session.id}`, { method: 'DELETE', token })
+      await onChanged()
+    } catch (error) {
+      setMessage(error.message)
+    }
+  }
+
+  return (
+    <section className="pf-panel" style={{ marginTop: '26px' }}>
+      <div className="pf-panel__head">
+        <h2 className="pf-panel__title">Sessions</h2>
+        <button
+          type="button"
+          className="pf-btn pf-btn--ghost"
+          onClick={() => {
+            setDraft(EMPTY_SESSION)
+            setEditingId(null)
+            setOpen((current) => !current)
+            setMessage('')
+          }}
+        >
+          {open ? 'CANCEL' : 'ADD'}
+        </button>
+      </div>
+      <p className="pf-row__meta">The run of show. Times are shown on the public event page once set.</p>
+
+      {open && (
+        <form className="pf-form" onSubmit={save} style={{ marginTop: '14px' }}>
+          <label className="pf-field">
+            <span>Title</span>
+            <input
+              value={draft.title}
+              required
+              minLength={2}
+              onChange={(changeEvent) => setDraft({ ...draft, title: changeEvent.target.value })}
+            />
+          </label>
+          <label className="pf-field">
+            <span>Description</span>
+            <textarea
+              rows={3}
+              value={draft.description}
+              onChange={(changeEvent) => setDraft({ ...draft, description: changeEvent.target.value })}
+            />
+          </label>
+          <label className="pf-field">
+            <span>Speaker</span>
+            <select
+              value={draft.speakerId}
+              onChange={(changeEvent) => setDraft({ ...draft, speakerId: changeEvent.target.value })}
+            >
+              <option value="">No speaker</option>
+              {speakers.map((speaker) => (
+                <option key={speaker.id} value={speaker.id}>
+                  {speaker.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="pf-field">
+            <span>Starts</span>
+            <input
+              type="datetime-local"
+              value={draft.startsAt}
+              onChange={(changeEvent) => setDraft({ ...draft, startsAt: changeEvent.target.value })}
+            />
+          </label>
+          <label className="pf-field">
+            <span>Ends</span>
+            <input
+              type="datetime-local"
+              value={draft.endsAt}
+              onChange={(changeEvent) => setDraft({ ...draft, endsAt: changeEvent.target.value })}
+            />
+          </label>
+          <label className="pf-field">
+            <span>Venue</span>
+            <input
+              value={draft.venue}
+              onChange={(changeEvent) => setDraft({ ...draft, venue: changeEvent.target.value })}
+            />
+          </label>
+          <div className="pf-actions">
+            <button type="submit" className="pf-btn">
+              {editingId ? 'SAVE CHANGES' : 'ADD SESSION'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {message && <p className="pf-row__meta">{message}</p>}
+
+      <div className="pf-rows" style={{ marginTop: '14px' }}>
+        {sessions.length === 0 && <p className="pf-empty">NO SESSIONS YET.</p>}
+        {sessions.map((session) => (
+          <div className="pf-row" key={session.id}>
+            <span>
+              <h3 className="pf-row__title">{session.title}</h3>
+              <span className="pf-row__meta">
+                {[session.startsAt, session.venue].filter(Boolean).join(' · ') || 'NO TIME OR VENUE SET'}
+              </span>
+            </span>
+            <span className="pf-actions" style={{ marginTop: 0 }}>
+              <button type="button" className="pf-btn pf-btn--ghost" onClick={() => edit(session)}>
+                EDIT
+              </button>
+              <button type="button" className="pf-btn pf-btn--ghost" onClick={() => remove(session)}>
+                DELETE
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function RegistrationFieldsSection({ token, eventId, fields, onChanged }) {
+  const [draft, setDraft] = useState({ key: '', label: '', type: 'text', options: '', required: false })
+  const [editingId, setEditingId] = useState(null)
+  const [open, setOpen] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const edit = (field) => {
+    setDraft({
+      key: field.key,
+      label: field.label,
+      type: field.type,
+      options: Array.isArray(field.options) ? field.options.join(', ') : '',
+      required: field.required,
+    })
+    setEditingId(field.id)
+    setOpen(true)
+    setMessage('')
+  }
+
+  const save = async (submitEvent) => {
+    submitEvent.preventDefault()
+    setMessage('')
+    try {
+      await apiRequest(
+        editingId ? `/api/admin/fields/${editingId}` : `/api/admin/events/${eventId}/fields`,
+        { method: editingId ? 'PATCH' : 'POST', token, body: draft },
+      )
+      setDraft({ key: '', label: '', type: 'text', options: '', required: false })
+      setEditingId(null)
+      setOpen(false)
+      await onChanged()
+      setMessage('Saved.')
+    } catch (error) {
+      setMessage(error.message)
+    }
+  }
+
+  const remove = async (field) => {
+    if (!window.confirm(`Delete the "${field.label}" question?`)) return
+    setMessage('')
+    try {
+      await apiRequest(`/api/admin/fields/${field.id}`, { method: 'DELETE', token })
+      await onChanged()
+    } catch (error) {
+      setMessage(error.message)
+    }
+  }
+
+  return (
+    <section className="pf-panel" style={{ marginTop: '26px' }}>
+      <div className="pf-panel__head">
+        <h2 className="pf-panel__title">Registration questions</h2>
+        <button
+          type="button"
+          className="pf-btn pf-btn--ghost"
+          onClick={() => {
+            setDraft({ key: '', label: '', type: 'text', options: '', required: false })
+            setEditingId(null)
+            setOpen((current) => !current)
+            setMessage('')
+          }}
+        >
+          {open ? 'CANCEL' : 'ADD'}
+        </button>
+      </div>
+      <p className="pf-row__meta">
+        Extra questions appear on the registration form. Required answers are enforced by the server.
+      </p>
+
+      {open && (
+        <form className="pf-form" onSubmit={save} style={{ marginTop: '14px' }}>
+          <label className="pf-field">
+            <span>Label</span>
+            <input
+              value={draft.label}
+              required
+              minLength={2}
+              onChange={(changeEvent) => setDraft({ ...draft, label: changeEvent.target.value })}
+            />
+          </label>
+          <label className="pf-field">
+            <span>Key (blank to derive from the label)</span>
+            <input
+              value={draft.key}
+              readOnly={Boolean(editingId)}
+              onChange={(changeEvent) => setDraft({ ...draft, key: changeEvent.target.value })}
+            />
+          </label>
+          <label className="pf-field">
+            <span>Type</span>
+            <select
+              value={draft.type}
+              onChange={(changeEvent) => setDraft({ ...draft, type: changeEvent.target.value })}
+            >
+              {['text', 'textarea', 'select', 'number', 'email', 'phone'].map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          {draft.type === 'select' && (
+            <label className="pf-field">
+              <span>Options (comma separated)</span>
+              <input
+                value={draft.options}
+                onChange={(changeEvent) => setDraft({ ...draft, options: changeEvent.target.value })}
+              />
+            </label>
+          )}
+          <label className="pf-field">
+            <span>Required</span>
+            <select
+              value={draft.required ? 'yes' : 'no'}
+              onChange={(changeEvent) => setDraft({ ...draft, required: changeEvent.target.value === 'yes' })}
+            >
+              <option value="no">Optional</option>
+              <option value="yes">Required</option>
+            </select>
+          </label>
+          <div className="pf-actions">
+            <button type="submit" className="pf-btn">
+              {editingId ? 'SAVE CHANGES' : 'ADD QUESTION'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {message && <p className="pf-row__meta">{message}</p>}
+
+      <div className="pf-rows" style={{ marginTop: '14px' }}>
+        {fields.length === 0 && <p className="pf-empty">NO EXTRA QUESTIONS.</p>}
+        {fields.map((field) => (
+          <div className="pf-row" key={field.id}>
+            <span>
+              <h3 className="pf-row__title">{field.label}</h3>
+              <span className="pf-row__meta">
+                {field.key} · {field.type} · {field.required ? 'REQUIRED' : 'OPTIONAL'}
+              </span>
+            </span>
+            <span className="pf-actions" style={{ marginTop: 0 }}>
+              <button type="button" className="pf-btn pf-btn--ghost" onClick={() => edit(field)}>
+                EDIT
+              </button>
+              <button type="button" className="pf-btn pf-btn--ghost" onClick={() => remove(field)}>
+                DELETE
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ImagerySection({ token, eventId, event, media, onChanged }) {
+  const [coverId, setCoverId] = useState('')
+  const [heroId, setHeroId] = useState('')
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    setCoverId(String(media.find((asset) => asset.url === event.coverUrl)?.id || ''))
+    setHeroId(String(media.find((asset) => asset.url === event.heroUrl)?.id || ''))
+  }, [event.coverUrl, event.heroUrl, media])
+
+  const save = async (submitEvent) => {
+    submitEvent.preventDefault()
+    setMessage('')
+    try {
+      await apiRequest(`/api/admin/events/${eventId}`, {
+        method: 'PATCH',
+        token,
+        body: { coverAssetId: coverId || null, heroAssetId: heroId || null },
+      })
+      await onChanged()
+      setMessage('Imagery saved.')
+    } catch (error) {
+      setMessage(error.message)
+    }
+  }
+
+  return (
+    <section className="pf-panel" style={{ marginTop: '26px' }}>
+      <h2 className="pf-panel__title">Imagery</h2>
+      <p className="pf-row__meta">
+        Upload images in The Glimpse first, then choose them here. The hero fills the event page; the
+        cover appears beside the event in the list.
+      </p>
+      <form className="pf-form" onSubmit={save} style={{ marginTop: '14px' }}>
+        <label className="pf-field">
+          <span>Cover image</span>
+          <select value={coverId} onChange={(changeEvent) => setCoverId(changeEvent.target.value)}>
+            <option value="">No cover</option>
+            {media.map((asset) => (
+              <option key={asset.id} value={asset.id}>
+                {asset.caption || asset.url.split('/').pop()}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="pf-field">
+          <span>Hero image</span>
+          <select value={heroId} onChange={(changeEvent) => setHeroId(changeEvent.target.value)}>
+            <option value="">No hero</option>
+            {media.map((asset) => (
+              <option key={asset.id} value={asset.id}>
+                {asset.caption || asset.url.split('/').pop()}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="pf-actions">
+          <button type="submit" className="pf-btn">
+            SAVE IMAGERY
+          </button>
+          {message && <span className="pf-row__meta">{message}</span>}
+        </div>
+      </form>
+    </section>
+  )
+}
+
+function ContentTab({ token }) {
+  const [events, setEvents] = useState([])
+  const [eventId, setEventId] = useState('')
+  const [detail, setDetail] = useState(null)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    apiRequest('/api/admin/events', { token })
+      .then((payload) => {
+        setEvents(payload.data)
+        setEventId((current) => current || String(payload.data[0]?.id || ''))
+      })
+      .catch((error) => setMessage(error.message))
+  }, [token])
+
+  const reload = useCallback(async () => {
+    if (!eventId) return
+    const payload = await apiRequest(`/api/admin/events/${eventId}/content`, { token })
+    setDetail(payload.data)
+  }, [eventId, token])
+
+  useEffect(() => {
+    reload().catch((error) => setMessage(error.message))
+  }, [reload])
+
+  const onChanged = useCallback(async () => {
+    await reload()
+  }, [reload])
+
+  return (
+    <>
+      <label className="pf-field" style={{ marginTop: '20px' }}>
+        <span>Event</span>
+        <select value={eventId} onChange={(changeEvent) => setEventId(changeEvent.target.value)}>
+          {events.map((event) => (
+            <option key={event.id} value={event.id}>
+              {event.title}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {message && <p className="pf-row__meta">{message}</p>}
+      {!detail && !message && <p className="pf-empty">LOADING CONTENT…</p>}
+
+      {detail && (
+        <>
+          <ImagerySection
+            token={token}
+            eventId={eventId}
+            event={detail.event}
+            media={detail.media}
+            onChanged={onChanged}
+          />
+          {Object.keys(CONTENT_SECTIONS).map((kind) => (
+            <ContentKindSection
+              key={kind}
+              kind={kind}
+              token={token}
+              eventId={eventId}
+              items={detail.content[kind] || []}
+              onChanged={onChanged}
+            />
+          ))}
+          <SpeakersSection
+            token={token}
+            eventId={eventId}
+            speakers={detail.speakers}
+            onChanged={onChanged}
+          />
+          <SessionsSection
+            token={token}
+            eventId={eventId}
+            sessions={detail.sessions}
+            speakers={detail.speakers}
+            onChanged={onChanged}
+          />
+          <RegistrationFieldsSection
+            token={token}
+            eventId={eventId}
+            fields={detail.registrationFields}
+            onChanged={onChanged}
+          />
+        </>
+      )}
+    </>
+  )
+}
+
 export default function AdminPlatform() {
   const { token } = useAuth()
   const [tab, setTab] = useState('events')
-  const [elevatedToken, setElevatedToken] = useState(null)
+  const [elevatedToken, setElevatedToken] = useState(() => readElevated()?.token ?? null)
 
   useEffect(() => {
     document.title = 'Organizer console — Unstable Forge'
@@ -914,8 +2051,16 @@ export default function AdminPlatform() {
         </p>
 
         <div className="pf-actions" style={{ marginTop: '22px' }}>
-          <ElevationBar token={token} onElevated={setElevatedToken} />
+          <ElevationBar
+            token={token}
+            onElevated={(session) => {
+              saveElevated({ token: session.token, expiresAt: session.expiresAt })
+              setElevatedToken(session.token)
+            }}
+          />
         </div>
+
+        <PlatformControls token={token} elevatedToken={elevatedToken} />
 
         <div className="pf-tabs" role="tablist" aria-label="Organizer sections">
           {TABS.map((entry) => (
@@ -933,6 +2078,7 @@ export default function AdminPlatform() {
         </div>
 
         {tab === 'events' && <EventsTab token={token} elevatedToken={elevatedToken} />}
+        {tab === 'content' && <ContentTab token={activeToken} />}
         {tab === 'payments' && <PaymentsTab token={activeToken} />}
         {tab === 'checkin' && <CheckinTab token={activeToken} />}
         {tab === 'certificates' && <CertificatesTab token={activeToken} />}

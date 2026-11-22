@@ -17,12 +17,12 @@ export default function Journey() {
             <em className="serif">ONE BUILD.</em>
           </h2>
           <p className="journey__intro" data-reveal style={{ '--reveal-delay': '100ms' }}>
-            The sequence is set. The dates are not. Registration is open now; event logistics
-            will be confirmed as the timeline is locked.
+            Registration is open now. Every team moves through the same six moments, from the
+            first entry record to the published results.
           </p>
           <div className="journey__legend">
             <span className="status-dot" aria-hidden="true" />
-            <span>ALL DATES TBA</span>
+            <span>SEQUENCE CONFIRMED</span>
           </div>
         </div>
 
@@ -48,7 +48,7 @@ export default function Journey() {
               </li>
             ))}
           </ol>
-          <p className="journey__footnote">SEQUENCE SUBJECT TO ORGANIZER CONFIRMATION.</p>
+          <p className="journey__footnote">DATES ARE PUBLISHED WITH THE EVENT BRIEF.</p>
         </div>
       </div>
     </section>

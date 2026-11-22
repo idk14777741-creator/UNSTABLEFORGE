@@ -34,8 +34,8 @@ export default function BriefPage({ onOpenRegistration }) {
             <em className="serif">ON THE RECORD.</em>
           </h1>
           <p className="brief-hero__lede">
-            {brand.event} at {brand.audience.toLowerCase()}. Everything confirmed about the build,
-            the format and the timeline lives here — anything still unconfirmed stays marked TBA.
+            {brand.event} at {brand.audience.toLowerCase()}. The brief, the challenge domains,
+            the run of show and what is at stake all live here.
           </p>
           <div className="brief-hero__facts">
             {eventFacts.map((fact) => (

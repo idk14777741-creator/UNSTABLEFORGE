@@ -1,4 +1,4 @@
-import { brand, navLinks, projectsLink, socials, updatesLink } from '../data/site'
+import { brand, navLinks, projectsLink, updatesLink } from '../data/site'
 import Mark from './Mark'
 import { Link } from '../lib/router'
 
@@ -61,41 +61,36 @@ export default function Footer() {
                   <span>C³</span>
                 </li>
                 <li>
-                  <span>DATE</span>
-                  <span>TBA</span>
+                  <span>AT STAKE</span>
+                  <span>₹1,50,000</span>
                 </li>
                 <li>
-                  <span>VENUE</span>
-                  <span>TBA</span>
+                  <span>ENTRY</span>
+                  <span>₹300 / TEAM</span>
                 </li>
                 <li>
-                  <span>FORMAT</span>
-                  <span>TBA</span>
+                  <span>TEAM SIZE</span>
+                  <span>1–4</span>
                 </li>
               </ul>
             </div>
 
             <div className="footer__col">
-              <h2 className="footer__col-title">FOLLOW</h2>
+              <h2 className="footer__col-title">UPDATES</h2>
               <ul>
-                {socials.map((social) =>
-                  social.url ? (
-                    <li key={social.label}>
-                      <a href={social.url} target="_blank" rel="noreferrer noopener">
-                        {social.label} <span aria-hidden="true">↗</span>
-                      </a>
-                    </li>
-                  ) : (
-                    <li key={social.label}>
-                      <span className="footer__pending" title="Link to be added">
-                        {social.label}
-                        <span className="footer__pending-tag">TBA</span>
-                      </span>
-                    </li>
-                  ),
-                )}
+                <li>
+                  <Link to={updatesLink.href}>ANNOUNCEMENTS</Link>
+                </li>
+                <li>
+                  <Link to="/events">ALL EVENTS</Link>
+                </li>
+                <li>
+                  <Link to="/brief#faq">EVENT FAQ</Link>
+                </li>
               </ul>
-              <p className="footer__social-note">SOCIAL LINKS WILL BE ADDED WHEN FINAL.</p>
+              <p className="footer__social-note">
+                ORGANIZER DISPATCHES ARE PUBLISHED IN THE ARCHIVE FIRST.
+              </p>
             </div>
           </div>
         </div>

@@ -79,7 +79,7 @@ function RegistrationPass({ registration, email }) {
       </dl>
 
       <div className="entry-pass-card__foot">
-        <span>THIS CONFIRMS YOUR RECORD WAS SAVED. EVENT LOGISTICS REMAIN TBA.</span>
+        <span>THIS CONFIRMS YOUR C³ RECORD WAS SAVED.</span>
         <Link to="/announcements">FOLLOW UPDATES ↗</Link>
       </div>
     </div>
@@ -233,8 +233,8 @@ export default function RegisterPage() {
           <div className="entry-hero__foot">
             <p>
               Registration for C³ is open. Add your name and campus to the event record, then
-              keep your reference. Event date, venue, format and final eligibility rules remain
-              TBA.
+              keep your reference. Teams are one to four people, the entry fee is ₹300 per team,
+              and the field is capped at 120 participants.
             </p>
             <span className="entry-hero__stamp">
               {brand.event}
@@ -291,7 +291,7 @@ export default function RegisterPage() {
             </dl>
 
             <p className="entry-brief__note">
-              FINAL ELIGIBILITY, TEAM SIZE AND EVENT LOGISTICS ARE STILL BEING CONFIRMED.
+              TEAMS OF 1–4 · ₹300 PER TEAM · 120 PARTICIPANTS · ₹1,50,000 AT STAKE.
             </p>
           </aside>
 
@@ -413,8 +413,8 @@ export default function RegisterPage() {
                   </button>
 
                   <p className="entry-form__note">
-                    By registering you add these details to the C³ event record. This does not
-                    confirm event logistics that are still TBA.
+                    By registering you add these details to the C³ event record. Payment and team
+                    passes are handled on the C³ event page.
                   </p>
                 </form>
               </>

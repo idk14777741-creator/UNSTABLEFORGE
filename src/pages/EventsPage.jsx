@@ -17,12 +17,15 @@ function EventRow({ event, index }) {
   return (
     <Link className="pf-event" to={`/events/${event.slug}`}>
       <span className="pf-event__index">{String(index + 1).padStart(2, '0')}</span>
-      <span>
-        <span className="pf-event__type">{event.type}</span>
-        <h2 className="pf-event__title">{event.title}</h2>
-        <p className="pf-event__copy">
-          {event.shortDescription || 'Details are being configured by the organizers.'}
-        </p>
+      <span className="pf-event__body">
+        {event.coverUrl && <img className="pf-event__cover" src={event.coverUrl} alt="" />}
+        <span>
+          <span className="pf-event__type">{event.type}</span>
+          <h2 className="pf-event__title">{event.title}</h2>
+          <p className="pf-event__copy">
+            {event.shortDescription || 'Details are being configured by the organizers.'}
+          </p>
+        </span>
       </span>
       <span className="pf-event__status" data-state={open ? 'open' : 'idle'}>
         {STATUS_LABEL[event.lifecycle] || event.lifecycle.toUpperCase()}

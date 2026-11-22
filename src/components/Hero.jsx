@@ -59,7 +59,7 @@ export default function Hero({ onOpenRegistration }) {
               <span className="hero__status-sep" aria-hidden="true">
                 /
               </span>
-              <span>DETAILS TBA</span>
+              <span>₹1,50,000 AT STAKE</span>
             </p>
 
             <div className="hero__scroll" aria-hidden="true">

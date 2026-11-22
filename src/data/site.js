@@ -29,11 +29,19 @@ export const updatesLink = {
   href: '/announcements',
 }
 
+// Confirmed C³ values only. Date and venue are omitted until they are real.
 export const eventFacts = [
-  { label: 'DATE', value: 'TO BE ANNOUNCED' },
-  { label: 'VENUE', value: 'TO BE ANNOUNCED' },
-  { label: 'FORMAT', value: 'TO BE ANNOUNCED' },
+  { label: 'AT STAKE', value: '₹1,50,000' },
+  { label: 'TEAM SIZE', value: '1–4' },
+  { label: 'CAPACITY', value: '120 PARTICIPANTS' },
 ]
+
+export const stakes = {
+  prize: '₹1,50,000',
+  fee: '₹300 PER TEAM',
+  teamSize: '1–4 PARTICIPANTS',
+  capacity: '120 PARTICIPANTS',
+}
 
 export const pillars = [
   {
@@ -56,82 +64,88 @@ export const pillars = [
   },
 ]
 
+// The sequence is confirmed; the calendar slots are not. Each step carries its
+// phase rather than an invented date.
 export const journey = [
   {
     number: '01',
     title: 'REGISTRATION',
-    date: 'TBA',
-    copy: 'Registration opens. Eligibility, team limits, and the official sign-up route are published here.',
+    date: 'OPEN NOW',
+    copy: 'Teams of one to four register for C³. Entry is ₹300 per team and the field is capped at 120 participants.',
   },
   {
     number: '02',
     title: 'EVENT KICKOFF',
-    date: 'TBA',
+    date: 'AT KICKOFF',
     copy: 'The brief goes live, teams assemble, and the build window officially begins.',
   },
   {
     number: '03',
     title: 'BUILD PHASE',
-    date: 'TBA',
+    date: 'DURING THE BUILD',
     copy: 'Research, design, build, test. The long middle where ideas become working things.',
   },
   {
     number: '04',
     title: 'PROJECT SUBMISSION',
-    date: 'TBA',
+    date: 'BEFORE JUDGING',
     copy: 'Final repositories and demos are submitted before the official deadline.',
   },
   {
     number: '05',
     title: 'JUDGING',
-    date: 'TBA',
+    date: 'AT CLOSE',
     copy: 'Projects are reviewed against the published criteria by the judging panel.',
   },
   {
     number: '06',
     title: 'RESULTS',
-    date: 'TBA',
+    date: 'AT RESULTS',
     copy: 'The work is showcased, feedback is shared, and the results are announced.',
   },
 ]
 
 export const participation = [
-  { label: 'ELIGIBILITY', value: 'TO BE ANNOUNCED' },
-  { label: 'TEAM SIZE', value: 'TO BE ANNOUNCED' },
-  { label: 'PARTICIPATION FORMAT', value: 'TO BE ANNOUNCED' },
-  { label: 'RULES', value: 'COMING SOON' },
+  { label: 'ELIGIBILITY', value: 'ALTA CAMPUS STUDENTS' },
+  { label: 'TEAM SIZE', value: '1–4 PARTICIPANTS' },
+  { label: 'ENTRY FEE', value: '₹300 PER TEAM' },
+  { label: 'CAPACITY', value: '120 PARTICIPANTS' },
 ]
 
 export const faqs = [
   {
     question: 'WHO CAN PARTICIPATE?',
     answer:
-      'C³ is being designed for students across ALTA campuses. Final eligibility criteria will be confirmed and published with registration details.',
+      'C³ is open to students across ALTA campuses. Register with your participant account; every teammate is listed on the captain’s registration.',
   },
   {
     question: 'CAN I PARTICIPATE INDIVIDUALLY?',
     answer:
-      'Individual participation has not been confirmed yet. The final participation format will be published with the registration details.',
+      'Yes. A team can be a single participant. Teams may have up to four people, and the entry fee is charged once per team.',
   },
   {
     question: 'WHAT IS THE TEAM SIZE?',
+    answer: 'One to four participants per team. The captain registers the whole team and pays once.',
+  },
+  {
+    question: 'WHAT DOES IT COST?',
     answer:
-      'Team-size limits are not finalized. The official range will be published before registration opens.',
+      '₹300 per team, paid by the captain at checkout. Individual passes are issued to every teammate once the payment is verified.',
   },
   {
     question: 'DO I NEED TO BRING MY OWN LAPTOP?',
     answer:
-      'This has not been confirmed yet. Plan to bring your own laptop and charger; any additional equipment or venue-specific requirements will be announced with the event details.',
+      'Bring your own laptop and charger. Any venue-specific equipment requirements will be shared with registered participants before the event.',
   },
   {
     question: 'WHAT SHOULD I BUILD?',
     answer:
-      'The official tracks and problem statements are still being prepared. Once released, the brief will be published in the tracks section. Build something that responds to it and can be demonstrated clearly.',
+      'Choose one of the challenge domains in the constellation and build something real inside it. The domains are areas of possibility, not fixed problem statements.',
   },
   {
-    question: 'WHEN DOES REGISTRATION CLOSE?',
+    question: 'WHAT IS AT STAKE?',
     answer:
-      'Registration is open on this site. A closing date has not been confirmed yet and will be published alongside the full event timeline.',
+      'A prize pool of ₹1,50,000. Award categories and their distribution have not been published, so none are listed here.',
   },
 ]
 
@@ -143,10 +157,10 @@ export const socials = [
 
 export const registration = {
   status: 'REGISTRATION IS OPEN',
-  note: 'Register through the event site. Event dates, venue, format, eligibility criteria and team rules are still being confirmed and remain marked TBA.',
+  note: 'C³ takes teams of one to four. The captain registers the team and pays ₹300 once; every participant receives their own entry pass after payment is verified.',
   fields: [
     { label: 'REGISTRATION', value: 'OPEN' },
-    { label: 'EVENT DETAILS', value: 'TBA' },
+    { label: 'ENTRY FEE', value: '₹300 PER TEAM' },
     { label: 'ACCOUNT', value: 'REQUIRED' },
   ],
 }

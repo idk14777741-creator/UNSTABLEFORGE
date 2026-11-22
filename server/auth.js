@@ -44,6 +44,7 @@ export function signToken(user, { organizer = false } = {}) {
       sub: user.id,
       email: user.email,
       role: user.role,
+      ...(user.display_name ? { name: user.display_name } : {}),
       // Set only after the organizer's personal access code is verified.
       ...(organizer ? { org: true } : {}),
       iat: issuedAt,

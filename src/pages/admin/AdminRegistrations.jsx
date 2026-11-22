@@ -112,7 +112,7 @@ export default function AdminRegistrations() {
               <strong>{summary ? String(summary.campuses).padStart(2, '0') : '—'}</strong>
             </div>
             <p className="admin-summary__note">
-              REGISTRATIONS ARE SAVED IMMEDIATELY. EVENT LOGISTICS REMAIN TBA.
+              REGISTRATIONS ARE SAVED IMMEDIATELY. EVENT DETAILS ARE MANAGED IN THE PLATFORM CONSOLE.
             </p>
           </div>
 

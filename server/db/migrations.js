@@ -18,6 +18,8 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url))
 const MIGRATIONS = [
   { version: '002_platform', file: 'schema.platform.sql' },
   { version: '003_fee_unit', file: 'migrations/003_fee_unit.sql' },
+  { version: '004_platform_controls', file: 'migrations/004_platform_controls.sql' },
+  { version: '005_c3_domain_notes', file: 'migrations/005_c3_domain_notes.sql' },
 ]
 
 export async function applyMigrations(db) {

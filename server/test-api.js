@@ -234,7 +234,7 @@ async function main() {
 
   const signupValidation = await request('/api/auth/signup', {
     method: 'POST',
-    body: JSON.stringify({ email: 'not-an-email', password: 'short' }),
+    body: JSON.stringify({ fullName: '', email: 'not-an-email', password: 'short' }),
   })
   check(
     'signup validation reports email and password fields',
@@ -247,7 +247,11 @@ async function main() {
   const participantPassword = 'forgeDay8test1'
   const signup = await request('/api/auth/signup', {
     method: 'POST',
-    body: JSON.stringify({ email: participantEmail, password: participantPassword }),
+    body: JSON.stringify({
+      fullName: 'Day Eight Participant',
+      email: participantEmail,
+      password: participantPassword,
+    }),
   })
   check(
     'public signup creates a participant without a token',
@@ -258,7 +262,11 @@ async function main() {
 
   const duplicateSignup = await request('/api/auth/signup', {
     method: 'POST',
-    body: JSON.stringify({ email: participantEmail, password: participantPassword }),
+    body: JSON.stringify({
+      fullName: 'Day Eight Participant',
+      email: participantEmail,
+      password: participantPassword,
+    }),
   })
   check(
     'duplicate signup returns 409 with an email field error',
