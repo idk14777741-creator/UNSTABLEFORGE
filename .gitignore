@@ -8,3 +8,9 @@ server/data/
 unstablezip.zip
 .cloud-attachments/
 .freebuff/
+
+# Working notes and screenshots: local only, never committed.
+*_HANDOFF.md
+finalupgrade\?.md
+day10-linkedin-screenshots/
+uf-constellation-*.png
