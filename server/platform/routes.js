@@ -47,6 +47,11 @@ const IMAGE_EXTENSIONS = {
 }
 
 const mediaDir = () => process.env.MEDIA_DIR || path.resolve(process.cwd(), 'server/data/uploads')
+/**
+ * PostgreSQL is the only engine that keeps media bytes, because it is the only
+ * one used on a host whose filesystem does not survive a restart.
+ */
+const keepsMediaBlobs = (db) => db.engine === 'postgres'
 const now = () => new Date().toISOString()
 
 const EVENT_SELECT = `
@@ -2515,6 +2520,10 @@ export function registerPlatformRoutes(app, { db }) {
     await db.run('UPDATE events SET hero_asset_id = NULL WHERE hero_asset_id = ?', [id])
     await db.run('DELETE FROM media_assets WHERE id = ?', [id])
 
+    if (keepsMediaBlobs(db)) {
+      await db.run('DELETE FROM media_blobs WHERE storage_key = ?', [asset.storage_key])
+    }
+
     try {
       fs.rmSync(path.join(mediaDir(), asset.storage_key), { force: true })
     } catch {
@@ -2540,6 +2549,26 @@ export function registerMediaRoot(app, { db }) {
   const platform = requirePlatform(db)
   fs.mkdirSync(mediaDir(), { recursive: true })
   app.use('/media', express.static(mediaDir(), { maxAge: '7d', fallthrough: true }))
+
+  // A host without a persistent disk replaces MEDIA_DIR on every deploy and
+  // every idle spin-down, so the bytes are also kept in PostgreSQL and served
+  // from there once the file is gone. The disk stays the first source, which
+  // keeps local behaviour unchanged.
+  app.get('/media/*', async (req, res, next) => {
+    if (!keepsMediaBlobs(db)) return next()
+
+    const storageKey = decodeURIComponent(req.params[0] || '')
+    if (!storageKey) return next()
+
+    const blob = await db.get('SELECT mime_type, data FROM media_blobs WHERE storage_key = ?', [storageKey])
+    if (!blob) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Media not found.' } })
+    }
+
+    res.set('Content-Type', blob.mime_type)
+    res.set('Cache-Control', 'public, max-age=604800')
+    return res.send(blob.data)
+  })
 
   const requireGrant = async (req, res, next) => {
     const grant = await db.get(
@@ -2594,6 +2623,18 @@ export function registerMediaRoot(app, { db }) {
       const absolute = path.join(mediaDir(), storageKey)
       fs.mkdirSync(path.dirname(absolute), { recursive: true })
       fs.writeFileSync(absolute, buffer)
+
+      if (keepsMediaBlobs(db)) {
+        await db.run(
+          `INSERT INTO media_blobs (storage_key, mime_type, byte_size, data)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT (storage_key) DO UPDATE
+             SET data = excluded.data,
+                 mime_type = excluded.mime_type,
+                 byte_size = excluded.byte_size`,
+          [storageKey, mimeType, buffer.length, buffer],
+        )
+      }
 
       const created = await db.run(
         `INSERT INTO media_assets

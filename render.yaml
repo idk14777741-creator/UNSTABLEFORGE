@@ -1,13 +1,21 @@
-# Render Blueprint — one web service (Express API + the built Vite app) and one
-# managed PostgreSQL database. Import this repo in Render and it reads this file.
+# Render Blueprint — one free web service running the Express API, which also
+# serves the built Vite app.
 #
-# Custom domain: add it on the service in the Render dashboard, point the DNS
-# record Render shows you at it, and set APP_URL below to that final https URL
-# (it is used for Google OAuth callbacks and canonical links).
+# The database is deliberately NOT declared here. Render's own free PostgreSQL
+# is deleted 30 days after creation ("free Render Postgres databases expire 30
+# days after creation"; 14 days later the data is gone), which would destroy
+# C³ registrations. DATABASE_URL is filled from a free Neon project instead —
+# 1 GB, no credit card, and no expiry.
 #
-# Free plan notes: the web service sleeps after 15 idle minutes and takes about
-# a minute to wake, and the free database expires 30 days after creation. For a
-# live event with real registrations, move both to a paid plan.
+# Free plan facts that matter for an event:
+#   * the service sleeps after 15 minutes without traffic and takes about a
+#     minute to wake, so the first visitor after a quiet spell waits;
+#   * 750 instance hours per workspace per month, and spun-down time is free;
+#   * there is no persistent disk, so uploads live in PostgreSQL (migration
+#     006_media_blobs) and MEDIA_DIR below is only a cache;
+#   * custom domains and managed TLS are free on this plan.
+#
+# Set every `sync: false` value in the Render dashboard after the first deploy.
 
 services:
   - type: web
@@ -23,28 +31,33 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20.18.1
+      - key: NODE_ENV
+        value: production
       # Generated once by Render; changing it signs every session out.
       - key: AUTH_SECRET
         generateValue: true
+      # Public origin, e.g. https://unstable-forge.onrender.com or the custom
+      # domain. Google OAuth callbacks and email links are built from it, so it
+      # must match the URL people actually open.
       - key: APP_URL
         sync: false
+      # Seeds the first admin account on boot. Use a strong password; it is the
+      # only way in before Google sign-in is configured.
       - key: ADMIN_EMAIL
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      # Neon connection string, including ?sslmode=require. The driver switches
+      # TLS on when it sees sslmode=require in the URL.
       - key: DATABASE_URL
-        fromDatabase:
-          name: unstable-forge-db
-          property: connectionString
-      - key: PGSSLMODE
-        value: require
-      # Uploads are written here. Without a paid disk this directory is replaced
-      # on every deploy, so hold event photographs elsewhere or add a disk.
+        sync: false
+      # Cache directory only: the durable copy of every upload is in
+      # media_blobs, so losing this on restart costs nothing.
       - key: MEDIA_DIR
         value: /tmp/unstable-forge-uploads
-      # Set these in the dashboard when the accounts exist. The app degrades
-      # honestly without them: no email is claimed to be sent, no gateway is
-      # offered, and the Google button stays hidden.
+      # Set these when the accounts exist. Without them the app degrades
+      # honestly: no email is claimed to be sent, no gateway is offered, and the
+      # Google button stays hidden.
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
@@ -59,9 +72,3 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
-
-databases:
-  - name: unstable-forge-db
-    plan: free
-    databaseName: unstableforge
-    user: forge

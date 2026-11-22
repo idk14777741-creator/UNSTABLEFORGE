@@ -20,6 +20,7 @@ const MIGRATIONS = [
   { version: '003_fee_unit', file: 'migrations/003_fee_unit.sql' },
   { version: '004_platform_controls', file: 'migrations/004_platform_controls.sql' },
   { version: '005_c3_domain_notes', file: 'migrations/005_c3_domain_notes.sql' },
+  { version: '006_media_blobs', file: 'migrations/006_media_blobs.sql' },
 ]
 
 export async function applyMigrations(db) {
