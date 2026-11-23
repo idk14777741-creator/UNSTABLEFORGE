@@ -1,0 +1,57 @@
+name: Keep production warm
+
+# Render's free web service spins down after ~15 minutes without traffic and the
+# next visitor pays a ~1 minute cold start. This workflow is that traffic.
+#
+# To stop keeping the site warm, disable the workflow in the Actions tab (or
+# delete this file). Nothing else depends on it.
+
+on:
+  schedule:
+    # Every 10 minutes. GitHub treats schedules as best-effort: a run can start a
+    # few minutes late under load, which still lands well inside the 15 minute
+    # idle window. Narrow the window (for example `0,10,20 * * *`) if the
+    # workspace nears its 750 free instance hours.
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+# The job only makes an outbound request; it needs no repository token.
+permissions: {}
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: GET /api/health
+        env:
+          HEALTH_URL: https://unstable-forge.onrender.com/api/health
+        run: |
+          set -euo pipefail
+
+          # A cold start can take a minute, so allow retries on 5xx and on
+          # connection errors before the run is called failed.
+          status=$(curl -sS -o /tmp/health.json -w '%{http_code}' \
+            --max-time 90 \
+            --retry 3 --retry-delay 15 --retry-all-errors \
+            -H 'Cache-Control: no-cache' \
+            "$HEALTH_URL")
+
+          echo "HTTP $status"
+          cat /tmp/health.json || true
+          echo
+
+          if [ "$status" != "200" ]; then
+            echo "::error::health endpoint returned $status"
+            exit 1
+          fi
+
+          if ! grep -q '"status":"ok"' /tmp/health.json; then
+            echo "::error::health endpoint is not reporting status ok"
+            exit 1
+          fi

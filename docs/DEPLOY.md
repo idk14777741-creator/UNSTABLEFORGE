@@ -78,11 +78,20 @@ Replace `APP_URL` with the real origin:
 ## Free-tier behaviour to plan around
 
 - **Cold start.** The first request after 15 quiet minutes takes about a minute.
-  Before the event opens, ping `/api/health` every 10 minutes from a free cron
-  (e.g. cron-job.org) to keep it warm.
-- **750 instance hours/month.** A service that is awake around the clock would
-  use ~730, which fits, but leaves little headroom for deploy restarts. If the
-  workspace exceeds the quota, free services are suspended until the next month.
+  `.github/workflows/keep-warm.yml` pings `/api/health` every 10 minutes so the
+  service stays awake. It runs on GitHub Actions, which is free for public
+  repositories, so there is no extra account or cron service to maintain. Disable
+  the workflow in the Actions tab to let the service sleep again.
+- **Scheduled workflows are best-effort.** GitHub can start a run a few minutes
+  late, and it disables the schedule after 60 days without repository activity —
+  any commit re-enables it. If the schedule ever looks dead, run the workflow
+  once from the Actions tab.
+- **750 instance hours/month.** Kept warm around the clock, the service runs
+  ~744 of the 750 free hours, so the margin is thin and deploy restarts eat into
+  it. If Render's dashboard shows the workspace near the quota, narrow the cron
+  to daytime hours in `keep-warm.yml` (e.g. `0,10,20,30,40,50 0-17 * * *`) and
+  the rest of the day spins down as usual. If the workspace exceeds the quota,
+  free services are suspended until the next month.
 - **No persistent disk** on the free tier: `MEDIA_DIR` is a cache, and the real
   copy of every upload lives in `media_blobs`, so nothing is lost on restart.
 - **No backups** on free tiers. Export registrations from the organiser console
