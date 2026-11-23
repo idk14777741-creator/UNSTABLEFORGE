@@ -84,10 +84,36 @@ Replace `APP_URL` with the real origin:
   the workflow in the Actions tab to let the service sleep again. Five minutes
   rather than ten, because a scheduled run can start several minutes late and the
   gap still has to stay inside the 15 minute idle window.
-- **Scheduled workflows are best-effort.** GitHub can start a run a few minutes
-  late, and it disables the schedule after 60 days without repository activity —
-  any commit re-enables it. If the schedule ever looks dead, run the workflow
-  once from the Actions tab.
+- **Scheduled workflows are best-effort, and on this repository they have not
+  proven dependable.** Runs are green when triggered, but the cron itself has
+  been observed skipping ticks for 25+ minutes, which is longer than the idle
+  window, so the service still slept. It also disables the schedule after 60 days
+  without repository activity (any commit re-enables it). Treat the workflow as a
+  backstop and use the heartbeat below if warmth matters.
+- **Reliable heartbeat without a new account: Google Apps Script.** Uses the
+  Google account you already have, free, no card. At
+  <https://script.google.com> → **New project**, paste this, then run `start`
+  once and approve the permission prompt:
+
+  ```javascript
+  var URL = 'https://unstable-forge.onrender.com/api/health';
+
+  function ping() {
+    var res = UrlFetchApp.fetch(URL, { muteHttpExceptions: true });
+    Logger.log(res.getResponseCode() + ' ' + res.getContentText().slice(0, 120));
+  }
+
+  function start() {
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      ScriptApp.deleteTrigger(t);
+    });
+    ScriptApp.newTrigger('ping').timeBased().everyMinutes(5).create();
+  }
+  ```
+
+  `start` schedules `ping` every 5 minutes; the Apps Script quota for a consumer
+  account allows far more calls per day than this uses. Check the result under
+  **Executions**. To stop, delete the trigger in the same editor.
 - **750 instance hours/month.** Kept warm around the clock, the service runs
   ~744 of the 750 free hours, so the margin is thin and deploy restarts eat into
   it. If Render's dashboard shows the workspace near the quota, narrow the cron
