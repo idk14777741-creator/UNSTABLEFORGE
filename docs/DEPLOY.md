@@ -78,10 +78,12 @@ Replace `APP_URL` with the real origin:
 ## Free-tier behaviour to plan around
 
 - **Cold start.** The first request after 15 quiet minutes takes about a minute.
-  `.github/workflows/keep-warm.yml` pings `/api/health` every 10 minutes so the
+  `.github/workflows/keep-warm.yml` pings `/api/health` every 5 minutes so the
   service stays awake. It runs on GitHub Actions, which is free for public
   repositories, so there is no extra account or cron service to maintain. Disable
-  the workflow in the Actions tab to let the service sleep again.
+  the workflow in the Actions tab to let the service sleep again. Five minutes
+  rather than ten, because a scheduled run can start several minutes late and the
+  gap still has to stay inside the 15 minute idle window.
 - **Scheduled workflows are best-effort.** GitHub can start a run a few minutes
   late, and it disables the schedule after 60 days without repository activity —
   any commit re-enables it. If the schedule ever looks dead, run the workflow

@@ -8,11 +8,12 @@ name: Keep production warm
 
 on:
   schedule:
-    # Every 10 minutes. GitHub treats schedules as best-effort: a run can start a
-    # few minutes late under load, which still lands well inside the 15 minute
-    # idle window. Narrow the window (for example `0,10,20 * * *`) if the
-    # workspace nears its 750 free instance hours.
-    - cron: '*/10 * * * *'
+    # Every 5 minutes, not 10. GitHub treats schedules as best-effort and runs
+    # have been observed starting 5-10 minutes late, so a 10 minute cadence left
+    # gaps longer than the 15 minute idle window and the service still slept.
+    # Tighten further (`*/2`) or loosen (`*/10`) if the workspace nears its 750
+    # free instance hours.
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 # The job only makes an outbound request; it needs no repository token.
