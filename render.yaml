@@ -24,7 +24,9 @@ services:
     plan: free
     region: singapore
     branch: main
-    buildCommand: npm ci && npm run build
+    # --include=dev is required: NODE_ENV=production is present during the build,
+    # and a plain `npm ci` would then skip devDependencies — including vite.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
